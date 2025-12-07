@@ -1,4 +1,4 @@
-Inside the satchel you may find shell scripts, bash configuration fragments, tiny utilities, traditional how-to notes, and practical tips and tricks. Some pieces are polished, others are delightfully scrappy, and most exist because they solved a problem well enough that it was worth keeping them close.
+Inside this "satchel" you may find shell scripts, bash configuration fragments, tiny utilities, traditional how-to notes, and practical tips and tricks. Some pieces are polished, others are delightfully scrappy, and most exist because they solved a problem well enough that it was worth keeping them close.
 
 This is not a framework, a library, or an attempt at a grand design. Think of it as a well-worn pouch at a wizard’s side: a mix of reliable tools, simple incantations, and straightforward instructions you might pull out when someone says, “What’s the cleanest way to do this again?”
 
