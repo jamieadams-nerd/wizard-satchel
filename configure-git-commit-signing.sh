@@ -1,6 +1,23 @@
 #!/usr/bin/bash
 #
 # This script steamlines configuring your command git on a host to sign commits.
+# It generates an RSA key with 4096 bits. 
+#
+#   - It prompts you for a full name and email.
+#   - It sets the git config globals user.name and user.email
+#   - It searches existing keys, if it doesn't find one matching your email it creates one.
+#     otherwise it uses the key id from the existing one.
+#   - It then sets the git config user.signingkey 
+#   - it also sets the commit.gpgsign to true so by default all commits will be signed.
+#
+#  Change the script as you see fit. 
+# 
+# WARNING: 
+#     I have only tested this on a RHEL 10 in FIPS mode with the 
+#     following versions:
+#       gpg 2.4.5
+#       git 2.47.3
+#           
 #
 
 ##########################################################################
