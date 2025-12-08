@@ -51,6 +51,13 @@ validate_email() {
     fi
 }
 
+# Let's catch Control-C while they're entering user and email to make it look more professional.
+nevermind_and_exit() {
+   echo -e "\nOKAY, nevermind. You don't have to get aggressive."
+   exit 0
+}
+
+trap 'nevermind_and_exit' SIGINT
 # Prompt for Name
 while true; do
     read -p "Enter your full name: " user_name
@@ -66,6 +73,7 @@ while true; do
         break
     fi
 done
+trap - SIGINT
 
 # Display the collected information
 echo -e ":: Thank you. Input successful:"
