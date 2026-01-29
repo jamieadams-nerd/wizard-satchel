@@ -1,3 +1,8 @@
 [workspace]
-members = ['matrix', 'fancymsg']
+resolver = "3"
+
+members = [
+  'matrix', 
+  'fancymsg', 
+  'aks_prime']
 
