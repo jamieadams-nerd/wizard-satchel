@@ -253,11 +253,12 @@ fn poly_pow_x_plus_a_mod(n: &BigUint, r: u64, a: u64) -> Vec<BigUint> {
         if (&exp & BigUint::one()) == BigUint::one() {
             result = poly_mul_mod(&result, &base, n);
         }
+    
         exp >>= 1;
         if !exp.is_zero() {
             base = poly_mul_mod(&base, &base, n);
         }
     }
-
+    
     result
 }
