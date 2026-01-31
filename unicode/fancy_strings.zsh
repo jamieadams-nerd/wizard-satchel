@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-#
+# SPDX-License-Identifier: MIT
 # Author: Jamie L. Adams
 # Date:   Jan 2026
 #
