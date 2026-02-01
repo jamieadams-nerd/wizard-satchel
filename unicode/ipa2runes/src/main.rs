@@ -173,27 +173,33 @@ Enjoy experimenting with runes.
 use std::env;
 
 /// A rough “tradition” label for the rune we choose.
-/// This is not Unicode’s classification—it's our explicit metadata for auditing the mapping.
+/// This is not Unicode’s classification—it's our explicit 
+/// metadata for auditing the mapping.
 ///
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tradition {
-    /// Common to the older runic tradition and present in Anglo-Saxon Futhorc usage.
+    /// Common to the older runic tradition and 
+    /// present in Anglo-Saxon Futhorc usage.
     FuthorcCore,
 
-    /// Letters strongly associated with the expanded Anglo-Saxon Futhorc inventory
+    /// Letters strongly associated with the 
+    /// expanded Anglo-Saxon Futhorc inventory
     /// (Old English additions).
     AngloSaxonExtension,
 
-    /// Not used in this minimal tool, but included for completeness.
+    /// Not used in this minimal tool, but 
+    /// included for completeness.
     ScandinavianVariant,
 
-    /// Our mapping hack: no historically clean rune exists; we approximate with
+    /// Our mapping hack: no historically clean 
+    /// rune exists; we approximate with
     /// something readable.
     Approximation,
 }
 
-/// Rune metadata: store BOTH the glyph and the Unicode code point to avoid ambiguity.
+/// Rune metadata: store BOTH the glyph and the 
+/// Unicode code point to avoid ambiguity.
 #[derive(Debug, Clone, Copy)]
 struct RuneChar {
     ch: char,
@@ -221,7 +227,8 @@ fn fmt_rune(r: &RuneChar) -> String {
     )
 }
 
-/// A mapping result can be one rune or multiple runes (e.g., diphthongs, affricates).
+/// A mapping result can be one rune or multiple 
+/// runes (e.g., diphthongs, affricates).
 #[derive(Debug, Clone)]
 struct Mapping {
     runes: Vec<RuneChar>,
@@ -458,7 +465,8 @@ fn map_token(token: &str) -> Option<Mapping> {
         return Some(Mapping {
             runes: vec![],
             rationale:
-                "IPA length marker ignored for rune output (no direct rune length diacritic here).",
+                "IPA length marker ignored for rune output (no direct \
+                rune length diacritic here).",
         });
     }
 
@@ -468,13 +476,15 @@ fn map_token(token: &str) -> Option<Mapping> {
             // Choice: use CEN + SH (approx) for readability
             return Some(Mapping {
                 runes: vec![CEN, SH],
-                rationale: "Affricate /tʃ/ approximated as /t/~/k/ + /ʃ/: CEN + (approx) SH.",
+                rationale: "Affricate /tʃ/ approximated as /t/~/k/ \
+                           + /ʃ/: CEN + (approx) SH.",
             });
         }
         "dʒ" | "ʤ" => {
             return Some(Mapping {
                 runes: vec![DAEG, SH],
-                rationale: "Affricate /dʒ/ approximated as /d/ + /ʒ/~/ʃ/: DAEG + (approx) SH.",
+                rationale: "Affricate /dʒ/ approximated as /d/ \
+                           + /ʒ/~/ʃ/: DAEG + (approx) SH.",
             });
         }
         "aɪ" => {
@@ -510,7 +520,8 @@ fn map_token(token: &str) -> Option<Mapping> {
         _ => {}
     }
 
-    // Single-symbol tokens (including IPA chars that are one Unicode scalar)
+    // Single-symbol tokens (including IPA chars 
+    // that are one Unicode scalar)
     match token {
         // Consonants
         "p" => Some(Mapping {
@@ -615,6 +626,10 @@ fn map_token(token: &str) -> Option<Mapping> {
             runes: vec![EH],
             rationale: "/e/ -> EH (e).",
         }),
+        "ɛ" => Some(Mapping {
+            runes: vec![EH],
+            rationale: "/ɛ/ -> EH (approx; open-mid front vowel mapped to e-rune).",
+        }),
         "i" => Some(Mapping {
             runes: vec![IS],
             rationale: "/i/ -> IS (i).",
@@ -680,7 +695,8 @@ fn main() {
         } else if ipa_input.is_none() {
             ipa_input = Some(a);
         } else {
-            // If user provided multiple non-flag args, join with space (rare, but safe).
+            // If user provided multiple non-flag args, 
+            // join with space (rare, but safe).
             ipa_input = Some(format!("{} {}", ipa_input.unwrap(), a));
         }
     }
@@ -691,7 +707,8 @@ fn main() {
     if verbose {
         eprintln!("[input] raw:        {:?}", ipa_input);
         eprintln!("[input] normalized: {:?}", normalized);
-        eprintln!("[note] mapping goal: deterministic IPA -> rune string (audited), not strict historical orthography.");
+        eprintln!("[note] mapping goal: deterministic IPA -> \
+                   rune string (audited), not strict historical orthography.");
         eprintln!();
     }
 
@@ -749,7 +766,8 @@ fn main() {
         eprintln!("[audit] output rune count: {}", out_runes.len());
         if !unknown.is_empty() {
             eprintln!("[audit] unmapped tokens: {:?}", unknown);
-            eprintln!("[audit] suggestion: extend the token rules + map_token() table for these IPA symbols.");
+            eprintln!("[audit] suggestion: extend the token rules \
+                       map_token() table for these IPA symbols.");
         }
 
         // Show per-rune details
@@ -766,9 +784,13 @@ fn main() {
     println!(" {} \n", rune_string);
 
     if !unknown.is_empty() {
-        // Non-verbose still signals it with an exit code and message (useful in pipelines).
+
+        // Non-verbose still signals it with an exit 
+        // code and message (useful in pipelines).
         eprintln!("Warning: unmapped IPA tokens: {:?}", unknown);
-        // Exit code 1 indicates partial success (output produced, but incomplete mapping).
+
+        // Exit code 1 indicates partial success 
+        // (output produced, but incomplete mapping).
         std::process::exit(1);
     }
 }
