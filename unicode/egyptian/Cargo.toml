@@ -1,0 +1,7 @@
+[workspace]
+resolver = "3"
+
+members = [
+   "names-extractor",
+   "gardiner-extractor",
+ ]
