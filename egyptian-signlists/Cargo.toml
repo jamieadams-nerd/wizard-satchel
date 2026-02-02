@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+
+members = [
+   "unicode-hieroglyphs-extractor",
+   "gardiner-signlist-extractor", 
+   "signlist-core", 
+   "signlist-correlator", 
+   "xtask",
+ ]

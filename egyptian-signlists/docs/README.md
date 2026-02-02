@@ -1,4 +1,15 @@
 
+16 Standard ANSI Terminal Colors 
+These codes are typically used in shell scripts and terminal applications. 
+Black: FG: 30, BG: 40 (Bright: 90/100)
+Red: FG: 31, BG: 41 (Bright: 91/101)
+Green: FG: 32, BG: 42 (Bright: 92/102)
+Yellow: FG: 33, BG: 43 (Bright: 93/103)
+Blue: FG: 34, BG: 44 (Bright: 94/104)
+Magenta: FG: 35, BG: 45 (Bright: 95/105)
+Cyan: FG: 36, BG: 46 (Bright: 96/106)
+White: FG: 37, BG: 47 (Bright: 97/107)
+
 
 You’ve effectively built a machine-readable Gardiner / JSesh sign inventory, which means:
 

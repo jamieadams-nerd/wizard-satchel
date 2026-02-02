@@ -1,0 +1,30 @@
+# Cargo build output
+/target/
+
+# OS / editor noise
+.DS_Store
+*.swp
+*.swo
+*.tmp
+*.bak
+.idea/
+.vscode/
+
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Vim
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.bak
+
+# IDEs
+.idea/
+.vscode/
+
