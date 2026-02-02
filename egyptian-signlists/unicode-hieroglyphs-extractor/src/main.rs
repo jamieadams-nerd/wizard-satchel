@@ -1,42 +1,36 @@
+use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::sync::atomic::Ordering;
+
+use anyhow::{Context, Result};
 use serde::Serialize;
+
+// Pull in shared infrastructure
+use signlist_core::{VERBOSE};
+use signlist_core::verbose;
+use signlist_core::stderr_is_tty;
+
+/* ============================================================
+ * Data model
+ * ============================================================
+ */
 
 #[derive(Debug, Serialize)]
 struct HieroglyphUnicode {
-    /// "U+13000"
     unicode_point: String,
-
-    /// "13000"
     codepoint_hex: String,
-
-    /// 77824
     codepoint_dec: u32,
-
-    /// "𓀀" (may not render everywhere)
     char: String,
-
-    /// "EGYPTIAN HIEROGLYPH A001"
     unicode_name: String,
-
-    /// "A001"
     unicode_id: String,
-
-    /// "A", "D", "N", etc.
     family: String,
-
-    /// True if this is a hieroglyphic *format/control* operator
-    /// (joiners, inserts, begin/end markers, mirroring, etc.)
     is_format_control: bool,
 }
 
 fn is_format_control(name: &str, family: &str) -> bool {
-    // Unicode puts hieroglyphic layout operators in family "H"
-    // but not every H-sign is guaranteed to be a control forever,
-    // so we also key off the Unicode name.
-    family == "H"
-        && (
-            name.contains("JOINER")
+    family == "H" && (
+        name.contains("JOINER")
             || name.contains("INSERT")
             || name.contains("BEGIN")
             || name.contains("END")
@@ -45,28 +39,70 @@ fn is_format_control(name: &str, family: &str) -> bool {
             || name.contains("ENCLOSURE")
             || name.contains("SEGMENT")
             || name.contains("BLANK")
-        )
+    )
 }
 
-fn main() -> std::io::Result<()> {
-    let file = File::open("NamesList.txt")?;
-    let reader = BufReader::new(file);
+/* ============================================================
+ * Main
+ * ============================================================
+ */
 
+fn main() -> Result<()> {
+    let mut args = env::args().skip(1);
+
+    let mut input: Option<String> = None;
+    let mut output: Option<String> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--input" => {
+                input = Some(
+                    args.next().context("missing value for --input")?
+                );
+            }
+            "--output" => {
+                output = Some(
+                    args.next().context("missing value for --output")?
+                );
+            }
+            "--verbose" | "-v" => {
+                VERBOSE.store(true, Ordering::Relaxed);
+            }
+            _ => {
+                anyhow::bail!("unknown argument: {}", arg);
+            }
+        }
+    }
+
+    let input = input.context(
+        "usage: unicode-hieroglyphs-extractor --input <file> --output <file> [--verbose]"
+    )?;
+
+    let output = output.context(
+        "usage: unicode-hieroglyphs-extractor --input <file> --output <file> [--verbose]"
+    )?;
+
+    verbose!("reading input file: {}", input);
+    verbose!("writing output file: {}", output);
+
+    let file = File::open(&input)
+        .with_context(|| format!("failed to open input file: {}", input))?;
+
+    let reader = BufReader::new(file);
     let mut records: Vec<HieroglyphUnicode> = Vec::new();
 
-    for line in reader.lines() {
-        let line = line?;
+    for (line_no, line) in reader.lines().enumerate() {
+        let line = line
+            .with_context(|| format!("failed reading line {}", line_no + 1))?;
+
         if !line.contains("EGYPTIAN HIEROGLYPH") {
             continue;
         }
 
-        // Expected format:
-        // <hex>\tEGYPTIAN HIEROGLYPH A001
         let mut parts = line.split_whitespace();
         let hex = parts.next().unwrap();
         let unicode_name = parts.collect::<Vec<_>>().join(" ");
 
-        // Extract the trailing A001 / D021 / N005 / etc.
         let unicode_id = unicode_name
             .split_whitespace()
             .last()
@@ -79,7 +115,9 @@ fn main() -> std::io::Result<()> {
             .unwrap()
             .to_string();
 
-        let codepoint_dec = u32::from_str_radix(hex, 16).unwrap();
+        let codepoint_dec =
+            u32::from_str_radix(hex, 16)
+                .with_context(|| format!("invalid hex codepoint: {}", hex))?;
 
         let ch = char::from_u32(codepoint_dec)
             .unwrap_or('\u{FFFD}')
@@ -87,6 +125,13 @@ fn main() -> std::io::Result<()> {
 
         let is_format_control =
             is_format_control(&unicode_name, &family);
+
+        verbose!(
+            "line {}: {} {}",
+            line_no + 1,
+            unicode_id,
+            unicode_name
+        );
 
         records.push(HieroglyphUnicode {
             unicode_point: format!("U+{}", hex),
@@ -100,8 +145,9 @@ fn main() -> std::io::Result<()> {
         });
     }
 
-    let json = serde_json::to_string_pretty(&records).unwrap();
-    std::fs::write("hieroglyphs_unicode.json", json)?;
+    let json = serde_json::to_string_pretty(&records)?;
+    std::fs::write(&output, json)
+        .with_context(|| format!("failed to write output file: {}", output))?;
 
     println!(
         "Extracted {} Egyptian hieroglyph Unicode records.",

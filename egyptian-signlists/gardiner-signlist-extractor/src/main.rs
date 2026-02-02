@@ -2,59 +2,12 @@
 // Copyright (c) 2026 Jamie Adams (a.k.a, Imodium Operator)
 
 use serde::Serialize;
-use std::io::IsTerminal;
-use std::sync::OnceLock;
-use std::sync::atomic::AtomicBool;
 
-static STDERR_IS_TTY: OnceLock<bool> = OnceLock::new();
-
-fn stderr_is_tty() -> bool {
-    *STDERR_IS_TTY.get_or_init(|| std::io::stderr().is_terminal())
-}
-
-static VERBOSE: AtomicBool = AtomicBool::new(false);
-
-macro_rules! verbose {
-    ($fmt:expr $(, $arg:expr)*) => {
-        if VERBOSE.load(std::sync::atomic::Ordering::Relaxed) {
-            if stderr_is_tty() {
-               eprintln!(
-                   concat!("\x1b[36m\u{21E2}\x1b[0m ", $fmt)
-                   $(, $arg)*
-               );
-            } else {
-                eprintln!(concat!("\u{21E2} ", $fmt) $(, $arg)*);
-            }
-        }
-    };
-}
-
-#[allow(unused)]
-macro_rules! error {
-    ($fmt:expr $(, $arg:tt)*) => {
-        if stderr_is_tty() {
-            eprintln!(
-                concat!("\x1b[31m[ERROR]\x1b[0m ", $fmt)
-                $(, $arg)*
-            );
-         } else {
-            eprintln!(
-                concat!("[ERROR] ", $fmt)
-                $(, $arg)*
-            );
-         }
-    };
-}
-
-macro_rules! fail {
-    ($code:expr, $fmt:expr $(, $arg:expr)*) => {{
-        eprintln!(
-            concat!("\x1b[31m[ FAIL ]\x1b[0m ", $fmt)
-            $(, $arg)*
-        );
-        std::process::exit($code);
-    }};
-}
+// Pull in shared infrastructure
+use signlist_core::VERBOSE;
+use signlist_core::verbose;
+use signlist_core::stderr_is_tty;
+use signlist_core::fail;
 
 #[derive(Serialize)]
 struct JseshSign {
@@ -69,26 +22,53 @@ fn main() {
 
     let mut args = std::env::args().skip(1);
     let mut input_path: Option<String> = None;
+    let mut output_path: Option<String> = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--verbose" | "-v" => {
                 VERBOSE.store(true, Ordering::Relaxed);
             }
-            _ => {
-                if input_path.is_none() {
-                    input_path = Some(arg);
-                } else {
-                    fail!(1, "unexpected argument: {}", arg);
+
+            "--input" | "-i" => {
+                let value = args
+                    .next()
+                    .unwrap_or_else(|| fail!(1, "missing value for {}", arg));
+
+                if input_path.is_some() {
+                    fail!(1, "duplicate {} argument", arg);
                 }
+
+                input_path = Some(value);
+            }
+
+            "--output" | "-o" => {
+                let value = args
+                    .next()
+                    .unwrap_or_else(|| fail!(1, "missing value for {}", arg));
+
+                if output_path.is_some() {
+                    fail!(1, "duplicate {} argument", arg);
+                }
+
+                output_path = Some(value);
+            }
+
+            _ => {
+                fail!(1, "unexpected argument: {}", arg);
             }
         }
     }
 
     let input_path = match input_path {
         Some(p) => p,
-        None => fail!(0, "usage: jsesh-extract [--verbose] <input-file>"),
+        None => fail!(
+            0,
+            "usage: gardiner-signlist-extractor [--verbose] --input <input-file> [--output <output-file>]"
+        ),
     };
+
+    let output_path = output_path.unwrap_or_else(|| "jsesh_inventory.json".to_string());
 
     verbose!("reading input file: {}", input_path);
 
@@ -116,7 +96,11 @@ fn main() {
         }
 
         if let Some(fam) = line.strip_suffix(" family") {
-            verbose!("line {}: \u{203B} Found family {}", line_no + 1, fam);
+            verbose!(
+                "line {}: \u{203B} Found family {}",
+                line_no + 1,
+                fam
+            );
             current_family = Some(fam.to_string());
             current_family_name = None;
             awaiting_family_name = true;
@@ -124,7 +108,11 @@ fn main() {
         }
 
         if awaiting_family_name {
-            verbose!("line {}:   family name = {}", line_no + 1, line);
+            verbose!(
+                "line {}:   family name = {}",
+                line_no + 1,
+                line
+            );
             current_family_name = Some(line.to_string());
             awaiting_family_name = false;
             continue;
@@ -138,7 +126,12 @@ fn main() {
                     .map(|c| c.is_alphanumeric())
                     .unwrap_or(false)
                 {
-                    verbose!("line {}:   sign {} (family {})", line_no + 1, code, f);
+                    verbose!(
+                        "line {}:   sign {} (family {})",
+                        line_no + 1,
+                        code,
+                        f
+                    );
                     results.push(JseshSign {
                         family: f.clone(),
                         family_name: name.clone(),
@@ -150,12 +143,18 @@ fn main() {
     }
 
     verbose!(" ");
-    verbose!("\u{26C1} Creating jsesh_inventory.json...");
+    verbose!("\u{26C1} Creating {}...", output_path);
+
     if let Err(e) = std::fs::write(
-        "jsesh_inventory.json",
+        &output_path,
         serde_json::to_string_pretty(&results).unwrap(),
     ) {
-        fail!(1, "failed to write output file: {}", e);
+        fail!(1, "failed to write output file {}: {}", output_path, e);
     }
-    verbose!("\u{26C3} Wrote {} records.\n", results.len());
+
+    verbose!(
+        "\u{26C3} Wrote {} records.\n",
+        results.len()
+    );
 }
+

@@ -1,4 +1,49 @@
 
+## Step 0 — Decide the contract (one time)
+
+We’ll make these locations “the contract” for the whole workspace:
+
+- Inputs (downloaded / third-party)
+  - data/unicode/NamesList.txt
+  - data/jsesh/jsesh-catalog-7.5.5.pdf
+- Intermediate + generated artifacts
+  - generated/ (json outputs, extracted text)
+- Reports
+  - reports/ (orphan report, stats, validation summaries)
+- Binaries for humans
+  dist/ (final executables copied here)
+
+
+Everything else can be internal to Cargo.
+
+## Step 1 — Make every tool accept paths (don’t hardcode)
+
+Update each extractor/correlator binary so it accepts:
+* --input <path>
+* --output <path>
+* --verbose (you already have this pattern)
+* (optional later) --data-root <dir> but we can avoid that by passing concrete paths from xtask.
+
+Concrete rules
+- unicode-hieroglyphs-extractor reads: data/unicode/NamesList.txt
+- gardiner-signlist-extractor reads: generated/jsesh.txt
+  - This text file is created with pdf2text against the JSesh PDF document.
+
+Given your current setup, keep it simple:
+- extractor reads generated/jsesh.txt as input (because you already have pdf2text as a separate step)
+
+So:
+- gardiner-signlist-extractor --input generated/jsesh.txt --output generated/jsesh_inventory.json
+- unicode-hieroglyphs-extractor --input data/unicode/NamesList.txt --output generated/hieroglyphs_unicode.json
+- signlist-correlator --unicode generated/hieroglyphs_unicode.json --jsesh generated/jsesh_inventory.json --output generated/correlation.json --report reports/orphans.json
+
+(Exact flag names are up to you, but that’s the shape.)
+
+
+
+
+
+
 16 Standard ANSI Terminal Colors 
 These codes are typically used in shell scripts and terminal applications. 
 Black: FG: 30, BG: 40 (Bright: 90/100)

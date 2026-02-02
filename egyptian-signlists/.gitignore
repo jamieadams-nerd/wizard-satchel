@@ -1,5 +1,10 @@
 # Cargo build output
 /target/
+dist/
+generated/
+reports/
+target/
+
 
 # OS / editor noise
 .DS_Store
