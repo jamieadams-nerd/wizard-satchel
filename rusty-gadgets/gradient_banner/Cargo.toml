@@ -1,0 +1,6 @@
+[package]
+name = "gradient_banner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]

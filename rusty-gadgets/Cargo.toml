@@ -4,6 +4,6 @@ resolver = "3"
 members = [
   'matrix', 
   'fancymsg', 
-  'aks_prime', 
+  'aks_prime', "gradient_banner", 
   ]
 
