@@ -82,7 +82,8 @@ fn main() -> io::Result<()> {
         &mut stdout,
         &args.message,
         Duration::from_secs(args.seconds),
-        Duration::from_millis(50),
+        //Duration::from_millis(50),
+        Duration::from_millis(500),
     );
 
     // Always restore terminal
@@ -215,7 +216,9 @@ fn run(stdout: &mut Stdout, message: &str, run_for: Duration, tick: Duration) ->
         }
 
         // Recompute box each frame (so it stays centered and fits message if window changes)
-        box_rect = compute_center_box(w, h, message);
+        //box_rect = compute_center_box(w, h, message);
+
+        box_rect = compute_center_box(w, 3, message);
 
         // Clear frame
         execute!(*stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))?;
@@ -273,7 +276,8 @@ fn draw_rain(
     clip_out: Rect,
 ) -> io::Result<()> {
     const GLYPHS: &[char] = &[
-        '0', '1', '7', 'A', 'B', 'C', 'D', 'E', 'F', 'H', 'J', 'K', 'M', 'N', 'P', 'R', 'S', 'T',
+    //    '0', '1', '7', 'A', 'B', 'C', 'D', 'E', 'F', 'H', 'J', 'K', 'M', 'N', 'P', 'R', 'S', 'T',
+        '\u{13000}', '\u{13001}', '\u{13140}', '\u{13143}', '\u{13080}',
         'V', 'X', 'Y', 'Z', 'ｱ', 'ｲ', 'ｳ', 'ｴ', 'ｵ', 'ｶ', 'ｷ', 'ｸ', 'ｹ', 'ｺ', 'ｻ', 'ｼ', 'ｽ', 'ｾ',
         'ｿ', 'ﾀ', 'ﾁ', 'ﾂ', 'ﾃ', 'ﾄ',
     ];

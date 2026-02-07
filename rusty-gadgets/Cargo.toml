@@ -3,7 +3,8 @@ resolver = "3"
 
 members = [
   'matrix', 
-  'fancymsg', 
-  'aks_prime', "gradient_banner", 
+  'spinner', 
+  'aks_prime', 
+  'gradient_banner', 
   ]
 
