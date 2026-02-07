@@ -3,11 +3,16 @@ export component UnicodeGrid inherits Window {
     width: 1000px;
     height: 700px;
 
+    in property <string> font_name;
+
     in property <string> block_name;
     in property <string> block_range;
 
     in property <[string]> glyphs;
     in property <[bool]> missing;
+
+    // NEW: one label per 16-cell row (e.g., "0xAB30", "0xAB40", ...)
+    in property <[string]> row_labels;
 
     VerticalLayout {
 
@@ -38,29 +43,100 @@ export component UnicodeGrid inherits Window {
             }
         }
 
-        // ---------- GRID (fills rest) ----------
+        // ---------- GRID ----------
         Rectangle {
             background: #101010;
 
             GridLayout {
+                padding: 4px;
                 spacing: 4px;
 
+                // --- top-left corner (blank) ---
+                Rectangle {
+                    row: 0;
+                    col: 0;
+                    width: 90px;
+                    height: 26px;
+                    background: #101010;
+                }
+
+                // --- column headers 0..F ---
+                Rectangle { row: 0; col: 1; width: 40px; height: 26px; background: #101010;
+                    Text { text: "0"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 2; width: 40px; height: 26px; background: #101010;
+                    Text { text: "1"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 3; width: 40px; height: 26px; background: #101010;
+                    Text { text: "2"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 4; width: 40px; height: 26px; background: #101010;
+                    Text { text: "3"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 5; width: 40px; height: 26px; background: #101010;
+                    Text { text: "4"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 6; width: 40px; height: 26px; background: #101010;
+                    Text { text: "5"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 7; width: 40px; height: 26px; background: #101010;
+                    Text { text: "6"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 8; width: 40px; height: 26px; background: #101010;
+                    Text { text: "7"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 9; width: 40px; height: 26px; background: #101010;
+                    Text { text: "8"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 10; width: 40px; height: 26px; background: #101010;
+                    Text { text: "9"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 11; width: 40px; height: 26px; background: #101010;
+                    Text { text: "A"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 12; width: 40px; height: 26px; background: #101010;
+                    Text { text: "B"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 13; width: 40px; height: 26px; background: #101010;
+                    Text { text: "C"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 14; width: 40px; height: 26px; background: #101010;
+                    Text { text: "D"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 15; width: 40px; height: 26px; background: #101010;
+                    Text { text: "E"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+                Rectangle { row: 0; col: 16; width: 40px; height: 26px; background: #101010;
+                    Text { text: "F"; font-family: "Menlo"; font-size: 14px; color: #c0c0c0; horizontal-alignment: center; vertical-alignment: center; } }
+
+                // --- left row labels ---
+                for label[r] in root.row_labels : Rectangle {
+    row: r + 1;
+    col: 0;
+
+    width: 90px;
+    height: 40px;
+
+    background: #101010;
+
+    Text {
+        text: label;
+        font-family: "Menlo";
+        font-size: 14px;
+        color: #c0c0c0;
+
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+
+
+                // --- glyph cells (forced 16 columns, shifted by +1 row/+1 col) ---
                 for glyph[i] in root.glyphs : Rectangle {
+
                     width: 40px;
                     height: 40px;
+                    preferred-width: 40px;
+                    preferred-height: 40px;
 
-                    // Force 16 columns
-                    row: Math.floor(i / 16);
-                    col: Math.mod(i, 16);
+
+                    row: 1 + Math.floor(i / 16);
+                    col: 1 + Math.mod(i, 16);
 
                     background: root.missing[i] ? #402020 : #202020;
 
                     Text {
                         text: glyph;
-                        font-family: "Menlo";
+                        font-family: root.font_name;
                         horizontal-alignment: center;
                         vertical-alignment: center;
-                        font-size: 18px;
+                        font-size: 22px;
                         color: white;
                     }
                 }
