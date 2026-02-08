@@ -11,8 +11,8 @@ fn main() {
     //let block = &LATIN_EXTENDED_E;
     //let block = &BASIC_LATIN;
     //let block = &BOX_DRAWING;
-    //let block = &RUNIC;
-    let block = &BRAILLE_PATTERNS;
+    let block = &RUNIC;
+    //let block = &BRAILLE_PATTERNS;
 
     // ---------------- glyphs ----------------
     let mut glyphs: Vec<SharedString> = Vec::new();

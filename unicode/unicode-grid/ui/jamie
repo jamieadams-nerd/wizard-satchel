@@ -1,25 +1,24 @@
-
-import {Button, VerticalBox } from "std-widgets.slint";
-
 export component UnicodeGrid inherits Window {
 
     title: "Unicode Block Viewer";
+
+    //width: 1000px;
     min-width: 800px;
-    height: 900px;
+    height: 1000px;
 
     in property <string> font_name;
+
     in property <string> block_name;
     in property <string> block_range;
+
     in property <[string]> glyphs;
     in property <[bool]> missing;
 
     // NEW: one label per 16-cell row (e.g., "0xAB30", "0xAB40", ...)
     in property <[string]> row_labels;
 
-
     VerticalLayout {
         padding: 10px;
-
 
         // ---------- HEADER (small) ----------
         Rectangle {
@@ -54,7 +53,6 @@ export component UnicodeGrid inherits Window {
 
             GridLayout {
                 padding: 4px;
-                padding-right: 8px;
                 spacing: 4px;
 
                 // --- top-left corner (blank) ---
@@ -66,8 +64,8 @@ export component UnicodeGrid inherits Window {
                     background: #101010;
                 }
 
-
                 // --- column headers 0..F ---
+
                 Rectangle {
                     row: 0;
                     col: 1;
@@ -339,12 +337,6 @@ export component UnicodeGrid inherits Window {
                         font-family: "Menlo";
                         font-size: 14px;
                         color: #c0c0c0;
-
-                        // Make text fill the cell so that justify will work. 
-                        x: 0px;
-                        y: 0px;
-                        width: parent.width;
-                        height: parent.height;
 
                         horizontal-alignment: right;
                         vertical-alignment: center;
