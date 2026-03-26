@@ -1,0 +1,628 @@
+ What C2PA can detect                                                                                         
+                                                                                                               
+  The c2pa.hash.data assertion stores a SHA-256 hash of specific byte ranges of the asset. If those bytes      
+  change after signing, verification fails with assertion.dataHash.mismatch. This covers:                      
+                  
+  - Pixel edits (Photoshop, etc.)                                                                              
+  - Metadata changes (EXIF stripping/modification)
+  - Re-compression or re-encoding                                                                              
+  - Any byte-level modification to the protected regions                                                       
+                                                                                                               
+  This is deterministic and reliable — it's just a hash comparison.                                            
+                                                                                                               
+  ---             
+  What C2PA cannot detect
+                                                                                                               
+  - Manifest stripping — someone can remove the entire manifest box. The image looks clean/unsigned, not
+  tampered. C2PA has no way to re-attach a stripped manifest or prove one existed. The absence of credentials  
+  is not proof of tampering; it might just be an unsigned image.
+  - Re-capture attacks — take a screenshot of the image, photograph your monitor, or print-and-scan it. The new
+   file has no manifest at all. The content is identical visually but the provenance chain is broken.          
+  - Content outside the hash exclusions — the spec intentionally excludes certain regions (like the manifest
+  box itself) from the hash. A carefully crafted attack targeting those exclusion regions could theoretically  
+  modify bytes that aren't hashed.
+                                                                                                               
+  ---             
+  The honest summary
+                    
+  C2PA is provenance infrastructure, not copy protection or tamper detection in the general sense. What it
+  actually gives you is:                                                                                       
+   
+  "This specific file, as it exists right now, was signed by this identity, at this time, and has not been     
+  byte-modified since."
+                                                                                                               
+  If the manifest is present and valid → you can trust the chain of custody.
+  If the manifest is absent or invalid → you know nothing, either way.                                         
+                                                                      
+  It's much more like a chain of custody seal on evidence than a DRM system. The value is in the positive case,
+   not in catching bad actors who simply strip the metadata.    
+
+  signature_info.issuer — What It Actually Means
+                                                                                                               
+  The issuer is the CA that issued the signing certificate, not the entity that signed. There are two distinct
+  fields:                                                                                                      
+                  
+  "signature_info": {
+    "issuer": "Adobe Inc.",           ← the CA that issued the cert
+    "cert_serial_number": "03:a1:",   ← which cert from that CA                                                
+    "time": "2025-11-14T10:23:00Z"    ← when it was signed                                                     
+  }                                                                                                            
+                                                                                                               
+  The actual signer identity is in the end-entity certificate itself (the CN= field). So issuer: "Adobe Inc."  
+  means Adobe's CA vouches for whoever signed — it could be Lightroom, Firefly, or any Adobe product with a
+  cert from that CA. It tells you who vouched for the signer, not who the signer is directly. The full cert is 
+  embedded in the manifest and you can inspect the subject CN for the actual tool/entity name.
+
+  ---
+  The First Manifest in the Chain — Can You Assume Origin/Ownership?
+                                                                                                               
+  Cautiously yes, but with important caveats.
+                                                                                                               
+  The first manifest (the deepest ingredient in the chain, with no further ingredients of its own) represents  
+  the original creation event. If it has:                                                                      
+                                                                                                               
+  - c2pa.created action                                                                                        
+  - No ingredients
+  - A signing cert from a camera manufacturer CA (Sony, Leica, Nikon, etc.)                                    
+                                                                                                               
+  ...then yes, you can reasonably assert: "this pixel data originated from this device, at this time, without  
+  prior editing." That is as close to "owner at capture" as C2PA can express.                                  
+                                                                                                               
+  However:        
+  - The first manifest proves creation identity, not ownership. The photographer who pressed the shutter owns
+  the image legally — C2PA doesn't encode that distinction. It encodes who signed, which is the camera.        
+  - If the first manifest was signed by a software tool (c2pa.created from Photoshop or Midjourney), that's the
+   origin — AI-generated or synthetically created.                                                             
+  - If there is no first manifest with c2pa.created — only c2pa.edited — the true origin is unknown or was     
+  stripped.
+                                                                                                               
+  ---             
+  Camera Auto-Signing — Yes, This Is Real and Deployed                                                         
+                                                                                                               
+  You heard correctly. It's called camera-level Content Credentials and is already shipping:
+                                                                                                               
+  ┌──────────────┬───────────────────────────────────────────────────────────────────┐                         
+  │ Manufacturer │                          Implementation                           │                         
+  ├──────────────┼───────────────────────────────────────────────────────────────────┤                         
+  │ Leica        │ M11-P (2023) — first production camera with built-in C2PA signing │
+  ├──────────────┼───────────────────────────────────────────────────────────────────┤
+  │ Sony         │ Selected Alpha mirrorless bodies — optional firmware feature      │                         
+  ├──────────────┼───────────────────────────────────────────────────────────────────┤                         
+  │ Nikon        │ Partnership announced, in progress                                │                         
+  ├──────────────┼───────────────────────────────────────────────────────────────────┤                         
+  │ Canon        │ Prototype/pilot stage with news agencies                          │
+  └──────────────┴───────────────────────────────────────────────────────────────────┘                         
+   
+  At capture, the camera's secure enclave generates a manifest with c2pa.created, embeds a thumbnail, hashes   
+  the raw pixel data, and signs it with a cert issued by the camera manufacturer's CA. The cert is provisioned
+  at the factory and tied to that specific camera body's serial number.                                        
+                  
+  This means a news photo taken on a Leica M11-P has a manifest that says, in verifiable terms:                
+   
+  "This exact pixel data was captured by camera body #XXXXX, manufactured by Leica, at 14:23:07 UTC on         
+  2025-11-14, and has not been modified at the byte level since shutter release."
+                                                                                                               
+  That is a strong provenance claim — as strong as the physical security of the camera itself.
+                                                                                                 
+
+
+
+ Yes, that is exactly what C2PA is designed for. What you're describing is a passthrough manifest — a         
+  standard, well-defined pattern in the spec.
+                                                                                                               
+  ---
+  The Two Cases You Described                                                                                  
+                             
+  Case 1 — No existing manifest:
+  - File arrives unsigned                                                                                      
+  - You sign it with c2pa.acquired or c2pa.published action (not c2pa.created — you're not claiming you made
+  it)                                                                                                          
+  - Your manifest says: "we received this file, we make no claim about its origin, here is its hash as it      
+  arrived on our system, signed by us"                                                                    
+  - Downstream recipients can verify the file hasn't changed since you touched it                              
+                  
+  Case 2 — File already has a manifest:                                                                        
+  - You read and display the existing chain
+  - You add a new manifest on top, embedding the existing store as an ingredient                               
+  - Your action: c2pa.published or a custom label                               
+  - Your assertion: "we received this, made no modifications, here is the hash"                                
+  - The c2pa.hash.data in your manifest covers the exact same bytes as the previous signer's hash — so if      
+  someone later verifies your manifest, the hash comparison proves the pixels are identical to what the        
+  previous signer certified                                                                                    
+                                                                                                               
+  ---                                                                                                          
+  What the Downstream Recipient Sees
+
+  [Original signer or camera]       ← ingredient (if present)
+    action: c2pa.created / unknown                                                                             
+    hash: 0xABCD...                                                                                            
+          ↓                                                                                                    
+  [Your system]                                                                                                
+    action: c2pa.published                                                                                     
+    claim_generator: "your-system/1.0"                                                                         
+    hash: 0xABCD...                 ← same hash, proving you changed nothing
+    signed by: your cert                                                                                       
+                                                                                                               
+  They verify your manifest → hash matches → they know the pixels are identical to what you received. They     
+  verify the ingredient → they see whatever provenance existed before you. The chain is intact and auditable.  
+                                                                                                               
+  ---             
+  One Important Detail
+                      
+  For Case 1, you should use something like:
+                                                                                                               
+  {
+    "action": "c2pa.published",                                                                                
+    "reason": "Accepted as-is; origin unknown; no modifications made."
+  }                                                                                                            
+   
+  Do not use c2pa.created — that asserts you are the originator of the content, which is a false claim and     
+  would be misleading to downstream verifiers.
+                                                                                                               
+  ---             
+  Is This Possible with the c2pa Rust SDK?
+                                                                                                               
+  Yes, straightforwardly. The Builder API handles both cases:
+  - Reader::from_file() to check for an existing manifest and extract the chain                                
+  - If existing manifest found: add it as an Ingredient in your new Builder                                    
+  - Builder::sign() with your cert to produce the output file                                                  
+                                                                                                               
+  This maps directly to what we planned for src/c2pa/mod.rs. Ready to build it?
+
+
+
+
+
+---                                                                                                          
+  The Identity Problem
+                                                                                                               
+  When your system signs a manifest, two things identify you:
+                                                                                                               
+  1. The signing certificate — X.509 cert that says "this is UMRS / this organization"                         
+  2. The claim_generator string — the human-readable name embedded in the manifest (e.g., "UMRS/1.0")          
+                                                                                                               
+  Both need to be externalizable. Customers adopting UMRS need to sign with their identity, not yours.         
+                                                                                                               
+  ---                                                                                                          
+  What Goes in the Config File
+                                                                                                               
+  # umrs-c2pa.toml  (or could be YAML/JSON — your call)
+                                                                                                               
+  [identity]                                                                                                   
+  # Human-readable name embedded in every manifest your system produces                                        
+  claim_generator = "UMRS Reference System/1.0"                                                                
+                                                                                                               
+  # Organization name for display in chain-of-custody reports                                                  
+  organization = "Acme Corp"                                                                                   
+                                                                                                               
+  # Path to the PEM-encoded signing certificate chain
+  cert_chain = "/etc/umrs/certs/signing.pem"
+                                                                                                               
+  # Path to the PEM-encoded private key (or see keystore below)                                                
+  private_key = "/etc/umrs/certs/signing.key"                                                                  
+                                                                                                               
+  # Optional: signing algorithm override (default: es256)                                                      
+  algorithm = "es256"
+                                                                                                               
+  [timestamp]                                                                                                  
+  # Optional: Time Stamp Authority URL for trusted signing timestamps
+  # If omitted, manifests are signed without a TSA timestamp                                                   
+  tsa_url = "http://timestamp.digicert.com"                                                                    
+                                                                                                               
+  [policy]                                                                                                     
+  # Action label to use when accepting a file with no prior manifest
+  unsigned_action = "c2pa.published"                                                                           
+   
+  # Action label to use when accepting a file with an existing manifest                                        
+  signed_action = "c2pa.published"
+                                                                                                               
+  # Human-readable reason embedded in the action assertion
+  acceptance_reason = "Accepted as-is; no modifications made by UMRS."
+                                                                                                               
+  ---
+  How the Code Uses It                                                                                         
+                                                                                                               
+  The config loads into a struct at startup and gets passed into your c2pa module:
+                                                                                                               
+  // src/c2pa/mod.rs (simplified)
+                                                                                                               
+  pub struct UmrsIdentity {                                                                                    
+      pub claim_generator: String,
+      pub organization: String,                                                                                
+      pub cert_chain_pem: Vec<u8>,
+      pub private_key_pem: Vec<u8>,
+      pub algorithm: SigningAlg,                                                                               
+      pub tsa_url: Option<String>,
+  }                                                                                                            
+                  
+  The CallbackSigner (the production signer type) takes a closure — you load the key from wherever the config  
+  points and hand it to the signer. The manifest then carries the customer's identity, not a hardcoded UMRS
+  identity.                                                                                                    
+                  
+  ---
+  Key vs. Certificate — What Customers Actually Need to Supply
+                                                                                                               
+  For a real deployment there are three tiers:
+                                                                                                               
+  ┌──────────────────┬───────────────────────────────────────────────────┬─────────────────────────────────┐   
+  │       Tier       │                 What they provide                 │           Trust level           │   
+  ├──────────────────┼───────────────────────────────────────────────────┼─────────────────────────────────┤   
+  │ Test /           │ Nothing — use EphemeralSigner                     │ Untrusted (valid but            │
+  │ evaluation       │                                                   │ self-signed)                    │
+  ├──────────────────┼───────────────────────────────────────────────────┼─────────────────────────────────┤   
+  │ Internal / pilot │ Self-signed cert + private key                    │ Untrusted (auditable            │   
+  │                  │                                                   │ internally)                     │   
+  ├──────────────────┼───────────────────────────────────────────────────┼─────────────────────────────────┤   
+  │ Production       │ Cert issued by a C2PA-recognized CA (e.g.,        │ Trusted by all C2PA validators  │
+  │                  │ DigiCert)                                         │                                 │   
+  └──────────────────┴───────────────────────────────────────────────────┴─────────────────────────────────┘
+
+  The config file approach handles all three — you just change what cert_chain and private_key point to. The   
+  code path is identical regardless of tier.
+                                                                                                               
+  ---             
+  What I Would Not Do
+                     
+  - Don't put the private key path in the same config file that gets checked into source control — document
+  that private_key must point to a secrets-managed location (environment variable override, Vault, AWS Secrets 
+  Manager, etc.)
+  - Don't hardcode any cert or key bytes in the binary — even for the "default" ephemeral test case, generate  
+  it at runtime                                                                                                
+   
+  ---                                                                                                          
+  Proposed Approach for the Prototype
+                                                                                                               
+  1. Config struct in src/c2pa/mod.rs loaded from a TOML file at a path specified by --config CLI flag (or a
+  default like ./umrs-c2pa.toml)                                                                               
+  2. If no config / no cert provided → fall back to EphemeralSigner automatically (easy evaluation experience)
+  3. If cert + key provided in config → use CallbackSigner with those credentials                              
+  4. The config is the only thing that changes between a test deployment and a production one                  
+                                                                                                               
+  Does that structure work for what you have in mind? And do you have a preference for the config format —     
+  TOML, YAML, or JSON?
+
+
+
+
+ ---                                                                                                          
+  Logging — systemd-journal-logger
+                                                                                                               
+  The crate is systemd-journal-logger (slightly different name than you had). It implements the standard log
+  facade, so the library code just calls log::info!(), log::warn!() etc. — it never knows or cares what the
+  backend is.
+
+  # Cargo.toml
+  log                      = "0.4"          # logging facade (always present)
+  systemd-journal-logger   = "2"            # journald backend                                                 
+   
+  Enable/disable via config:                                                                                   
+                  
+  # umrs-c2pa.toml                                                                                             
+  [logging]       
+  enabled = true                                                                                               
+  level   = "info"    # off | error | warn | info | debug | trace
+                                                                                                               
+  At startup, if enabled = false, set log::set_max_level(LevelFilter::Off). Every log::info!(target: "UMRS",   
+  ...) call becomes a no-op at zero runtime cost — the compiler eliminates them. No performance penalty in
+  production when logging is off.                                                                              
+                  
+  ---
+  Chain of Custody Display
+                          
+  You said you don't care what they did — just who and when. The output we'd produce:
+                                                                                                               
+  Chain of Custody — photo.jpg
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                             
+   1  [TRUSTED]     Sony Corporation                                                                           
+                    Signed: 2025-09-14 08:12:33 UTC                                                            
+                    Cert:   Sony Imaging CA / SN 0x04A1...                                                     
+                                                                                                               
+   2  [TRUSTED]     Adobe Inc.                                                                                 
+                    Signed: 2025-10-02 14:45:01 UTC                                                            
+                    Cert:   Adobe Content Credentials CA / SN 0x11F3...                                        
+                                                                                                               
+   3  [UNTRUSTED]   UMRS Reference System                                                                      
+                    Signed: 2026-03-26 11:00:00 UTC                                                            
+                    Cert:   Self-signed (test) / SN 0xABCD...                                                  
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                             
+  Hash at each step: CONSISTENT  ← all hashes match, no byte changes detected                                  
+                                                                                                               
+  Each entry comes from walking the ingredient chain backward, extracting signature_info from each manifest.   
+                                                                                                               
+  ---                                                                                                          
+  Trust Levels — How They Actually Work
+                                       
+  You used the term "trust anchor" — that is the correct PKI term. Here's the full picture:
+                                                                                                               
+  Each hop in the chain gets one of these trust evaluations independently:                                     
+                                                                                                               
+  ┌───────────┬─────────────────────────────────────────────────────────────────────────────────────────────┐  
+  │  Status   │                                           Meaning                                           │
+  ├───────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ TRUSTED   │ Cert chain leads to a root CA in the C2PA Trust List. Cryptographically valid.              │
+  ├───────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ UNTRUSTED │ Signature is cryptographically valid, but the CA is not on the Trust List (self-signed,     │  
+  │           │ private CA, test cert). Valid chain, unknown identity.                                      │  
+  ├───────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤  
+  │ INVALID   │ Signature verification failed, or asset hash doesn't match. Something broke.                │  
+  ├───────────┼─────────────────────────────────────────────────────────────────────────────────────────────┤  
+  │ REVOKED   │ Cert was revoked by the issuing CA (OCSP/CRL check)                                         │
+  └───────────┴─────────────────────────────────────────────────────────────────────────────────────────────┘  
+                  
+  The trust anchor is the root CA certificate. The C2PA Trust List is a curated set of root CAs maintained by  
+  the C2PA organization — camera makers, Adobe, etc. apply to get their CA added.
+                                                                                                               
+  For UMRS in test mode: your self-signed cert will show UNTRUSTED — which is correct and honest. It means     
+  "valid signature, unknown identity." In production, customers get a cert from a recognized CA and their
+  entries show TRUSTED.                                                                                        
+                  
+  The cryptographic strength (key size, algorithm) is separate from trust level — it's about whether the math  
+  is sound, not whether you trust who did the math.
+                                                                                                               
+  ---             
+  FIPS Algorithms — C2PA's Allowed Set vs. FIPS
+                                                                                                               
+  C2PA spec allows exactly these algorithms:
+                                                                                                               
+  ┌─────────────────────────────────┬─────────────────────┬───────────────────────┐
+  │            Algorithm            │ FIPS 140-3 Approved │      Safe Choice      │                            
+  ├─────────────────────────────────┼─────────────────────┼───────────────────────┤
+  │ es256 — ECDSA P-256 + SHA-256   │ ✅ Yes              │ ✅ Recommended        │
+  ├─────────────────────────────────┼─────────────────────┼───────────────────────┤
+  │ es384 — ECDSA P-384 + SHA-384   │ ✅ Yes              │ ✅ Recommended        │                            
+  ├─────────────────────────────────┼─────────────────────┼───────────────────────┤                            
+  │ es512 — ECDSA P-521 + SHA-512   │ ✅ Yes              │ ✅ Recommended        │                            
+  ├─────────────────────────────────┼─────────────────────┼───────────────────────┤                            
+  │ ps256 — RSA-PSS 2048+ + SHA-256 │ ✅ Yes              │ ✅ Acceptable         │
+  ├─────────────────────────────────┼─────────────────────┼───────────────────────┤                            
+  │ ps384 — RSA-PSS + SHA-384       │ ✅ Yes              │ ✅ Acceptable         │
+  ├─────────────────────────────────┼─────────────────────┼───────────────────────┤                            
+  │ ps512 — RSA-PSS + SHA-512       │ ✅ Yes              │ ✅ Acceptable         │
+  ├─────────────────────────────────┼─────────────────────┼───────────────────────┤                            
+  │ ed25519 — EdDSA Curve25519      │ ⚠️  Conditional      │ ❌ Avoid on FIPS RHEL │
+  └─────────────────────────────────┴─────────────────────┴───────────────────────┘                            
+   
+  ed25519 is in FIPS 186-5 (2023) on paper, but RHEL's OpenSSL FIPS provider often doesn't expose it — it      
+  varies by RHEL version and provider build. Stick with es256 or es384. They're the most widely supported in
+  the C2PA ecosystem anyway (Adobe, Sony, etc. all use ECDSA).                                                 
+                  
+  Does your FIPS choice impact others? No. The algorithm is recorded in your manifest and used to verify your  
+  signature only. Each signer in the chain used whatever algorithm they chose. Verifiers handle all the allowed
+   algorithms. Your choice of es256 doesn't constrain what Sony used upstream.                                 
+                  
+  ---
+  Vendored OpenSSL + FIPS on RHEL — The Tension
+                                                                                                               
+  This is the one real conflict to flag. Vendored and FIPS on RHEL are in tension:
+                                                                                                               
+  ┌───────────────────────────────────┬────────────────────────────┬───────────────────────────────────────┐   
+  │             Approach              │        Portability         │            FIPS Validated             │   
+  ├───────────────────────────────────┼────────────────────────────┼───────────────────────────────────────┤   
+  │ openssl crate, features =         │ ✅ Builds anywhere,        │ ❌ NOT the NIST-validated module —    │
+  │ ["vendored"]                      │ statically linked          │ it's a source build                   │
+  ├───────────────────────────────────┼────────────────────────────┼───────────────────────────────────────┤   
+  │ openssl crate, no vendored (links │ ❌ Requires system OpenSSL │ ✅ Uses RHEL's validated FIPS module  │
+  │  system OpenSSL)                  │  present                   │                                       │   
+  └───────────────────────────────────┴────────────────────────────┴───────────────────────────────────────┘
+                                                                                                               
+  The right solution: make it a compile-time feature flag.                                                     
+   
+  # Cargo.toml                                                                                                 
+  [features]      
+  default         = ["vendored-openssl"]
+  vendored-openssl = ["openssl/vendored"]   # portable, hermetic, not FIPS-validated
+  system-openssl  = []                      # links system OpenSSL — use on FIPS RHEL                          
+                                                                                                               
+  [dependencies]                                                                                               
+  openssl = { version = "0.10", optional = true }                                                              
+  c2pa    = { version = "0.78.6", default-features = false, features = ["openssl", "file_io"] }                
+                                                                                                               
+  Build for FIPS RHEL:                                                                                         
+  cargo build --no-default-features --features system-openssl                                                  
+                                                             
+  Build for portable/test:
+  cargo build  # uses vendored by default                                                                      
+                                         
+  This way the prototype works anywhere out of the box, and customers deploying on FIPS RHEL compile with      
+  system-openssl to use the validated module. Document it clearly — this is a sysadmin-level decision.         
+   
+  ---                                                                                                          
+  Updated Config File Shape
+                                                                                                               
+  # umrs-c2pa.toml
+                                                                                                               
+  [identity]      
+  claim_generator    = "UMRS Reference System/1.0"
+  organization       = "Acme Corp"                                                                             
+  cert_chain         = "/etc/umrs/certs/signing.pem"
+  private_key        = "/etc/umrs/certs/signing.key"                                                           
+  algorithm          = "es256"   # FIPS-safe: es256 | es384 | es512 | ps256 | ps384 | ps512
+                                                                                                               
+  [timestamp]     
+  tsa_url            = "http://timestamp.digicert.com"   # omit to disable TSA                                 
+                                                                                                               
+  [policy]
+  unsigned_action    = "c2pa.published"                                                                        
+  signed_action      = "c2pa.published"
+  acceptance_reason  = "Accepted as-is; no modifications made by UMRS."
+
+  [logging]
+  enabled            = true
+  level              = "info"    # off | error | warn | info | debug | trace
+                                                                                                               
+  ---
+  Ready to write the code? Here's the confirmed build order:                                                   
+                                                                                                               
+  1. Cargo.toml — features, all deps including systemd-journal-logger, toml, openssl
+  2. src/c2pa/mod.rs — library: config struct, read_manifest(), sign_file(), chain-of-custody walker           
+  3. src/main.rs — CLI: c2pa, config validate, config generate subcommands                                     
+  4. tests/c2pa_tests.rs — integration tests using ephemeral signer
+
+
+
+What "remote" means in C2PA context
+
+  1. Trust List checking (online, remote)
+  The C2PA org maintains a live list of approved root CAs. If you check against it, a Sony or Adobe cert shows
+  TRUSTED. Without it, the same signature still verifies cryptographically — it just shows UNTRUSTED (valid
+  signature, unknown CA). For your ingest-dropbox use case, the distinction doesn't matter much — you're recording
+  chain of custody, not gatekeeping on public trust.
+
+  2. OCSP / CRL revocation (online, remote)
+  Real-time check whether a signing cert has been revoked. Not in scope for the prototype per the plan, and the c2pa
+  crate doesn't do it by default either.
+
+  3. TSA (Time Stamp Authority) (online, optional)
+  The tsa_url config. This is the only "remote" thing currently wired in. It's optional — if omitted, timestamps come
+   from the local system clock. Useful but not required.
+
+  ---
+  Do people need root CAs?
+
+  No — not to sign. You just need any cert + private key. Self-signed works fine. The difference is only what
+  downstream validators display:
+
+  ┌───────────────────────────────┬─────────────────────────┬─────────────────┐
+  │          Cert source          │ Trust shown to verifier │ Crypto validity │
+  ├───────────────────────────────┼─────────────────────────┼─────────────────┤
+  │ Self-signed (test mode)       │ UNTRUSTED               │ ✅ valid        │
+  ├───────────────────────────────┼─────────────────────────┼─────────────────┤
+  │ Private CA (internal PKI)     │ UNTRUSTED               │ ✅ valid        │
+  ├───────────────────────────────┼─────────────────────────┼─────────────────┤
+  │ DigiCert / recognized C2PA CA │ TRUSTED                 │ ✅ valid        │
+  └───────────────────────────────┴─────────────────────────┴─────────────────┘
+
+  For UMRS ingest — where you're stamping "we received this file, hash X, at time T" — UNTRUSTED is honest and
+  sufficient. It means "signature is mathematically valid, we just don't vouch for who issued the cert." Downstream
+  recipients can still verify the file hasn't changed since UMRS signed it.
+
+  You only need a cert from a recognized CA if you want external tools (like Adobe's online verifier) to show a green
+   TRUSTED badge. That's a deployment decision, not a code one — the config path is already there, you just point
+  cert_chain and private_key at a proper cert when/if you get one.
+
+
+
+ Build commands are now:
+
+  # Air-gap (no internet, no TSA)
+  cargo build --release --no-default-features --features vendored-openssl
+
+  # Air-gap FIPS RHEL
+  cargo build --release --no-default-features --features system-openssl
+
+  When internet is absent, tsa_url in the config is accepted (no parse error) but silently dropped at signing time,
+  and inspect config validate emits a WARN explaining why.
+
+
+
+
+Build matrix to test here:
+
+  # FIPS RHEL with internet/TSA
+  cargo build --release --no-default-features --features system-openssl,internet
+
+  # Air-gap FIPS RHEL (no network, no TSA)
+  cargo build --release --no-default-features --features system-openssl
+
+
+
+Exactly right — it only hurts them if their crypto stack is behind. In practice:
+
+  C2PA spec mandates that conforming validators support ES256, ES384, ES512, PS256, PS384, PS512. So any compliant
+  verifier must handle ES512. If they can't, they're not C2PA-compliant — that's their problem.
+
+  Real-world nuance: ES256 (P-256) has the widest deployment because it's been around longest and is cheapest
+  computationally. ES512 (P-521) is stronger but some embedded/mobile tooling may lag. The C2PA reference tool
+  (c2patool) handles all of them.
+
+  FIPS angle: On your FIPS RHEL box, ES256/ES384/ES512 are all in the approved set. Ed25519 is the one that's dicey
+  under FIPS (which is why we excluded it).
+
+  Recommendation: ES256 as default is the pragmatic choice — maximum interop, FIPS-safe, and still strong. If a
+  deployment needs stronger, they bump to ES384/ES512 in the config. The config template already documents this.
+
+  Now let's see if the runtime holds up. Let me find or create a test image and try the ephemeral signer.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+
+
+
+ If we build our own, can others read it? And is the production? The term ephermeral concerns me? If we choose one,
+we just don't have a choice. But can we assure user's that's it is a strong algorithm and itis C2PA approved. If its
+part of FIPS (I was converned with 140-3 -- notsure about 186-5
+
+● Great questions. Let me untangle this.
+
+  "Ephemeral" just means the key is thrown away after signing. The output file is a perfectly standard C2PA-signed
+  JPEG. Any C2PA validator (Adobe's, the c2pa-rs tool, whatever) can read and verify the signature. The only thing
+  "test mode" about it is that the cert is self-signed — no chain of trust to a real CA. The cryptography is identical
+  either way.
+
+  Production signing uses your real cert + key from the config file. Same code path, same embedding format, just a
+  persistent identity backed by a CA.
+
+  On Ed25519 and FIPS: Your concern is valid.
+
+  - FIPS 186-5 (2023) added EdDSA/Ed25519 as approved
+  - FIPS 140-3 is the module validation standard — what matters is whether the specific validated module on your RHEL
+  box includes Ed25519 in its validated boundary
+  - Most RHEL OpenSSL FIPS modules were validated under 186-4, which does not include EdDSA
+
+
+
+Interesting. RHEL10's FIPS provider (OpenSSL 3.5.5) includes both Ed25519 and the full ECDSA suite. That's the 186-5
+  update in action — Red Hat's newer module includes EdDSA.
+
+  So here's the picture:
+
+  ┌───────────────┬──────────────────┬────────────────────────────────────┬────────────────┬───────────┐
+  │   Algorithm   │ FIPS on this box │ FIPS on older RHEL (186-4 modules) │ C2PA mandatory │  Interop  │
+  ├───────────────┼──────────────────┼────────────────────────────────────┼────────────────┼───────────┤
+  │ ES256 (P-256) │ Yes              │ Yes                                │ Yes — required │ Universal │
+  ├───────────────┼──────────────────┼────────────────────────────────────┼────────────────┼───────────┤
+  │ ES384 (P-384) │ Yes              │ Yes                                │ Yes — required │ Universal │
+  ├───────────────┼──────────────────┼────────────────────────────────────┼────────────────┼───────────┤
+  │ ES512 (P-521) │ Yes              │ Yes                                │ Yes — required │ Universal │
+  ├───────────────┼──────────────────┼────────────────────────────────────┼────────────────┼───────────┤
+  │ Ed25519       │ Yes (186-5)      │ No                                 │ Optional       │ Spotty    │
+  └───────────────┴──────────────────┴────────────────────────────────────┴────────────────┴───────────┘
+
+  Bottom line: Ed25519 happened to work here because RHEL10 ships a 186-5 module. But if your customers run older
+  FIPS-validated systems (RHEL 8/9 with 186-4 modules), Ed25519 will fail. And C2PA validators aren't required to
+  support it.
+
+  ES256 is the right default. It's FIPS-safe on every validated module you'll encounter, C2PA-mandatory (every
+  validator must handle it), and 256-bit ECDSA is strong — breaking it is a "not in our lifetimes" problem.
+
+  So the recommendation: build our own ephemeral signer that uses ES256 (or whatever the config says) instead of the
+  c2pa crate's hardcoded Ed25519 one. The signed output is identical C2PA — anyone can read it. Want me to build that?
+
+
+
+Usage: inspect c2pa [OPTIONS] <FILE>
+
+For more information, try '--help'.
+CentOS::goldeneye ../wizard-satchel/umrs-c2pa $ cargo run -- c2pa inspect ../jamie_images/jamie_desk.png
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.58s
+     Running `target/debug/inspect c2pa inspect ../jamie_images/jamie_desk.png`
+error: unexpected argument '../jamie_images/jamie_desk.png' found
+
+Usage: inspect c2pa [OPTIONS] <FILE>
+
+For more information, try '--help'.
+CentOS::goldeneye ../wizard-satchel/umrs-c2pa $ cargo run -- c2pa  ../jamie_images/jamie_desk.png
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running `target/debug/inspect c2pa ../jamie_images/jamie_desk.png`
+Error: File not found: ../jamie_images/jamie_desk.png
+CentOS::goldeneye ../wizard-satchel/umrs-c2pa $ cargo run -- inspect c2pa  ../jamie_images/jamie_desk.png
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running `target/debug/inspect inspect c2pa ../jamie_images/jamie_desk.png`
+error: unrecognized subcommand 'inspect'
+
+Usage: inspect [OPTIONS] <COMMAND>
+
+
+
+
+

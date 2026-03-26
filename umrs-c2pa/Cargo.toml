@@ -1,0 +1,57 @@
+[package]
+name    = "umrs-c2pa"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "inspect"
+path = "src/main.rs"
+
+[lib]
+name = "umrs_c2pa"
+path = "src/lib.rs"
+
+[features]
+default          = ["vendored-openssl", "internet"]
+vendored-openssl = ["openssl-sys/vendored"]  # hermetic build — no system OpenSSL required
+system-openssl   = []                    # link system OpenSSL — required for FIPS-validated RHEL
+internet         = ["ureq"]             # TSA timestamps + TSA reachability probe; omit for air-gap deployments
+
+[dependencies]
+# C2PA manifest read/write — reference Rust SDK
+c2pa = { version = "0.78.6", default-features = false, features = ["openssl", "file_io"] }
+
+# OpenSSL — always present (used for ephemeral cert generation and c2pa signing).
+# vendored-openssl feature enables static bundling; system-openssl links the host lib.
+openssl     = "0.10"
+openssl-sys = "0.9"  # needed to forward vendored feature flag
+
+# Error handling
+thiserror = "1"  # typed errors in library code
+anyhow    = "1"  # ergonomic error handling in binary only
+
+# CLI argument parsing
+clap = { version = "4", features = ["derive"] }
+
+# Config file
+toml  = "0.8"                              # TOML config parsing
+serde = { version = "1", features = ["derive"] }
+
+# JSON manifest output
+serde_json = "1"
+
+# Logging facade — always present; backend is platform-gated below
+log = "0.4"
+
+# SHA-256 file hash at ingest
+sha2 = "0.10"
+hex  = "0.4"
+
+# Timestamp parsing from manifests
+chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP probe for TSA reachability check in config validate — gated behind `network` feature
+ureq = { version = "2", optional = true }
+
+# journald backend
+systemd-journal-logger = "2"

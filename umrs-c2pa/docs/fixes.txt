@@ -1,0 +1,32 @@
+
+Chain of Custody — jamie_images/jamie_desk.png
+SHA-256: 3b6c04def733ee21d0fef1fa4e594e9a9b9c93132f5bd0a1a1473684a9f41cca
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1   [UNKNOWN]   OpenAI
+                    Issuer    : OpenAI
+                    Alg       : Es256
+                    Generator : ChatGPT 0.67.1
+
+  2   [UNKNOWN]      OpenAI
+                      Issuer : OpenAI
+                      Alg    : Es256
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+I think one more layer of cool, is the adding the generator information:
+
+   "active_manifest": "urn:c2pa:6422cc8d-5ce8-4ffe-b9ce-0849e1412c78",
+      580 +    "manifests": {
+      581 +        "urn:c2pa:6422cc8d-5ce8-4ffe-b9ce-0849e1412c78": {
+      582 +            "claim_generator_info": [
+      583 +                {
+      584 +                    "name": "ChatGPT",
+      585 +                    "org.contentauth.c2pa_rs": "0.67.1"
+      586 +                }
+      587 +            ],
+      588 +            "title": "image.png",
+
+
+Anything else about the Issuer? 
+
+What does unknown mean? 
