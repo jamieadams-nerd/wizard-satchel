@@ -50,7 +50,7 @@ src/
     ├── config.rs        UmrsConfig: TOML deserialization, defaults
     ├── error.rs         InspectError: unified typed error enum
     ├── ingest.rs        ingest_file(), sha256_hex(), IngestResult
-    ├── manifest.rs      read_chain(), has_manifest(), manifest_json()
+    ├── manifest.rs      read_chain(), chain_json(), has_manifest(), manifest_json()
     ├── report.rs        print_chain(), print_validation_report()
     ├── signer.rs        ECDSA ephemeral cert generation, SignerMode
     └── validate.rs      validate_config(), preflight checks
@@ -61,9 +61,9 @@ src/
 | Module | Responsibility |
 |---|---|
 | `config` | Load and parse `umrs-c2pa.toml`. Provide typed structs with serde defaults. |
-| `error` | Single `InspectError` enum covering IO, C2PA SDK, config, signing, and algorithm errors. |
+| `error` | Single `InspectError` enum covering IO, C2PA SDK, config, signing, algorithm, and overwrite-guard errors. |
 | `ingest` | Orchestrate the ingest pipeline: hash, detect manifest, select action, sign, write output, log. |
-| `manifest` | Read manifest store JSON from a file. Walk the ingredient chain. Extract chain entries. |
+| `manifest` | Read manifest store JSON from a file. Walk the ingredient chain. Extract chain entries. Serialize chain as JSON (`chain_json()`). |
 | `signer` | Parse and validate algorithm selection. Generate ECDSA ephemeral certs. Build `c2pa::BoxedSigner`. |
 | `validate` | Preflight checks run before any signing: required fields, cert/key files, key-cert match, algorithm, TSA reachability. |
 | `report` | Format and print chain-of-custody reports and config validation results to stdout. |
@@ -126,6 +126,69 @@ cargo run -- c2pa <FILE> --json
 Emits the full manifest store as pretty-printed JSON. This is the raw output
 from `c2pa::Reader::json()` — useful for debugging or piping to `jq`.
 
+### Evidence chain as JSON
+
+```
+cargo run -- c2pa <FILE> --chain-json
+```
+
+Emits the **parsed evidence chain** as JSON — the same data shown in the
+human-readable report, serialized for programmatic consumption. Unlike `--json`
+(raw c2pa SDK output), this returns UMRS-processed entries with normalized
+fields:
+
+```json
+[
+  {
+    "signer_name": "Truepic Lens CLI in Sora",
+    "issuer": "OpenAI",
+    "signed_at": null,
+    "trust_status": "NO_TRUST_LIST",
+    "algorithm": "Es256",
+    "generator": "ChatGPT",
+    "generator_version": null,
+    "security_label": null
+  },
+  {
+    "signer_name": "My Organization (ephemeral — self-signed)",
+    "issuer": "My Organization (ephemeral — self-signed)",
+    "signed_at": null,
+    "trust_status": "NO_TRUST_LIST",
+    "algorithm": "Es256",
+    "generator": "UMRS Reference System",
+    "generator_version": "0.1.0",
+    "security_label": "CUI//SP-CTI//NOFORN"
+  }
+]
+```
+
+This is intended for integration with other security tools that gather file
+metadata. The same function is available as a library call:
+
+```rust
+use umrs_c2pa::c2pa::chain_json;
+
+let json = chain_json(std::path::Path::new("image.png"))?;
+```
+
+Or to get the typed structs directly:
+
+```rust
+use umrs_c2pa::c2pa::read_chain;
+
+let chain: Vec<ChainEntry> = read_chain(std::path::Path::new("image.png"))?;
+for entry in &chain {
+    println!("{}: {} ({})", entry.signer_name, entry.generator, entry.trust_status);
+}
+```
+
+### `--json` vs `--chain-json`
+
+| Flag | Returns | Use case |
+|---|---|---|
+| `--json` | Raw c2pa SDK manifest store | Debugging, full assertion inspection, piping to `jq` |
+| `--chain-json` | UMRS-parsed evidence chain | Integration with other tools, security dashboards, automated pipelines |
+
 ### Sign and ingest (default output path)
 
 ```
@@ -145,6 +208,27 @@ cargo run -- c2pa <FILE> --sign --output <PATH>
 ```
 
 As above, but writes the signed output to `<PATH>`.
+
+### Sign with a security marking
+
+```
+cargo run -- c2pa <FILE> --sign --marking "CUI//SP-CTI//NOFORN"
+```
+
+Embeds a `umrs.security-label` assertion in the signed manifest. The marking
+string is stored as a tamper-evident, cryptographically signed assertion —
+if anyone modifies the marking after signing, the manifest hash breaks.
+
+The marking appears in both the human-readable chain (`Marking :`) and the
+`--chain-json` output (`security_label` field).
+
+Any string is accepted. Common values for CUI:
+
+| Marking | Meaning |
+|---|---|
+| `CUI` | Controlled Unclassified Information (basic) |
+| `CUI//SP-CTI` | CUI, Specified — Controlled Technical Information |
+| `CUI//SP-CTI//NOFORN` | CUI, Specified CTI, No Foreign Nationals |
 
 ### Validate configuration
 
@@ -337,8 +421,9 @@ absent from the config), `resolve_signer_mode()` returns
   | `SubjectKeyIdentifier` | hash of public key | Required by c2pa profile |
   | `AuthorityKeyIdentifier` | keyid (= SKI for self-signed) | Required by c2pa profile |
 
-- Sets `CN=UMRS ephemeral (test mode — UNTRUSTED)` so the cert is
-  identifiable in any validator's output
+- Sets `O=<organization>` and `CN=<organization> (ephemeral — self-signed)`
+  using the `organization` field from the TOML config, so the cert is
+  identifiable in any validator's output and shows who generated it
 - Sets validity: now to now+1 day
 - Discards the private key after signing — the key exists only in memory during
   the signing call
@@ -404,7 +489,7 @@ cargo run -- config generate --output umrs-c2pa.toml
 ```toml
 [identity]
 claim_generator = "UMRS Reference System/1.0"  # embedded in every manifest
-organization    = "Your Organization"           # display only, not in manifest
+organization    = "Your Organization"           # used in ephemeral cert CN + O fields
 # cert_chain    = "/etc/umrs/certs/signing.pem" # PEM chain, leaf first
 # private_key   = "/etc/umrs/certs/signing.key" # PEM private key
 algorithm       = "es256"                       # see allowed set
@@ -445,6 +530,159 @@ are `Some`. Partial configuration falls through to ephemeral mode.
 ---
 
 ## 7. Chain of Custody Model
+
+### Chain entry fields
+
+Each entry in the chain-of-custody report displays these fields:
+
+| Field | Source | Example |
+|---|---|---|
+| **Signer** (top line) | `signature_info.common_name` (cert CN), fallback to `issuer`, then `claim_generator` | `Truepic Lens CLI in Sora`, `My Organization (ephemeral — self-signed)` |
+| **Signed at** | `signature_info.time` (TSA), fallback to `when` from first action assertion. Shows `no timestamp provided` if absent. | `2026-03-26T14:35:04Z`, `no timestamp provided` |
+| **Issuer** | `signature_info.issuer` — **only shown if different from Signer** | `OpenAI` (omitted when same as signer) |
+| **Alg** | `signature_info.alg` | `Es256` |
+| **Generator** | `claim_generator_info[0].name` + `version` (if present), fallback to parsing `claim_generator` string on `/` | `ChatGPT`, `UMRS Reference System 0.1.0` |
+| **Marking** | `umrs.security-label` assertion `marking` field, if present | `CUI//SP-CTI//NOFORN` |
+
+The **Signer** identifies *who physically signed the manifest* — the
+certificate's Common Name. For OpenAI images this reveals `Truepic Lens CLI
+in Sora`, showing that OpenAI uses Truepic's C2PA signing infrastructure.
+
+The **Issuer** identifies *who authorized the signer* — the certificate
+issuing organization. The Issuer line is suppressed when it would duplicate
+the signer name.
+
+The **Generator** identifies *what software produced the manifest*. For
+OpenAI this is `ChatGPT`. For UMRS-signed images it shows `UMRS Reference
+System` plus the crate version from `Cargo.toml`. For camera firmware it
+would show the camera model and firmware version. Vendor-specific SDK version
+extensions (e.g. `org.contentauth.c2pa_rs`) are intentionally excluded —
+they are internal toolchain details, not meaningful to end users or auditors.
+
+### Reading a chain entry (annotated)
+
+Each entry in the chain tells a complete provenance story. Here is a real
+entry from an OpenAI-generated image, annotated:
+
+```
+  1   *[NO TRUST LIST]  Truepic Lens CLI in Sora    ← cert CN: who physically signed
+                         Signed at : no timestamp provided   ← no TSA timestamp in this manifest
+                         Issuer    : OpenAI          ← cert issuer: who authorized the signer
+                         Alg       : Es256           ← signing algorithm (FIPS-safe)
+                         Generator : ChatGPT         ← software that produced the manifest
+```
+
+Reading this entry: **OpenAI** (the certificate issuer) authorized **Truepic's
+signing tool** (the certificate Common Name, embedded in their Sora pipeline)
+to sign this image on behalf of **ChatGPT** (the generator — the user-facing
+application). The algorithm is **ES256** (ECDSA P-256), which is mandatory in
+the C2PA specification and FIPS-approved.
+
+The `*[NO TRUST LIST]` tag indicates that no trust list is configured on this
+system, so the signer's certificate chain could not be verified against a
+known root CA. This is an operational note, not a judgment on the image — the
+signature is structurally valid.
+
+For a UMRS-signed entry, the same pattern applies:
+
+```
+  3   *[NO TRUST LIST]  My Organization (ephemeral — self-signed)
+                         Signed at : 2026-03-26T14:44:14Z UTC ← UMRS ingest timestamp (UTC)
+                         Issuer    : My Organization
+                         Alg       : Es256
+                         Generator : UMRS Reference System 0.1.0
+                         Marking   : CUI//SP-CTI//NOFORN       ← security label (tamper-evident)
+```
+
+The **Signed at** field shows when the manifest was created. UMRS always records
+the ingest timestamp in UTC (ISO 8601 format) in the `when` field of the
+`c2pa.actions` assertion. Third-party signers may or may not include a
+timestamp — when absent, the report shows `no timestamp provided`. This is
+not a UMRS limitation; the original signer chose not to include a TSA
+timestamp or `when` field in their manifest.
+
+Here **My Organization** (from the TOML `organization` field) signed with an
+**ephemeral self-signed certificate** — the `(ephemeral — self-signed)` suffix
+makes this visually obvious. No Issuer line appears because the issuer and
+signer are the same entity (self-signed). The Generator shows the UMRS crate
+name and version.
+
+### Overwrite safeguard
+
+`ingest_file()` refuses to re-sign a file whose stem ends with `_umrs_signed`.
+This prevents accidental double-signing and overwriting a previously signed
+output.
+
+```
+$ cargo run -- c2pa tests/sandbox/jamie_umrs_signed.png --sign
+
+Error: Refusing to overwrite previously signed file: tests/sandbox/jamie_umrs_signed.png
+```
+
+The check is filename-convention based (not manifest-based) so it is fast and
+does not require parsing the file. To intentionally re-sign, rename the file
+first or use `--output` to specify a different output path with a different
+source file.
+
+### Security label assertions
+
+When `--marking` is passed during signing, `ingest_file()` embeds a
+`umrs.security-label` custom assertion in the manifest:
+
+```json
+{
+  "label": "umrs.security-label",
+  "data": {
+    "marking": "CUI//SP-CTI//NOFORN"
+  }
+}
+```
+
+This assertion is:
+
+- **Tamper-evident** — cryptographically bound to the manifest. The c2pa SDK
+  produces two validation codes that confirm this binding:
+
+  ```
+  assertion.hashedURI.match  — the assertion's URI hash matches the claim
+  assertion.dataHash.match   — the assertion's data hash is valid
+  ```
+
+  If anyone modifies the marking string after signing, both hashes break
+  and the manifest is invalidated. This is not an application-layer check —
+  it is the same cryptographic binding that protects every C2PA assertion.
+- **Preserved in the chain** — if the file is later re-signed (e.g., forwarded
+  through another UMRS node), the original marking is embedded in the
+  ingredient manifest and remains readable.
+- **Readable by any C2PA tool** — the assertion label `umrs.security-label` is
+  a vendor-prefixed custom assertion, which the C2PA spec explicitly allows.
+  Any tool that reads the manifest store JSON can extract it.
+
+The marking string is free-form. UMRS does not validate the string against a
+controlled vocabulary — that is the responsibility of the upstream policy
+system. Future phases may add validation against NIST SP 800-171 marking
+categories.
+
+When no `--marking` is provided, no security label assertion is added. The
+`security_label` field in `ChainEntry` will be `None` / `null` in JSON output.
+
+### Why this matters
+
+No existing C2PA tooling embeds security classification markings. The C2PA
+standard was designed for content provenance — proving *who made this and what
+they did to it*. UMRS extends this to answer a different question: *what
+handling restrictions apply to this content?*
+
+By embedding a CUI (or other) marking as a signed assertion inside the C2PA
+manifest, the marking travels with the file and cannot be stripped or modified
+without breaking the cryptographic chain. This is a fundamentally different
+posture from application-layer labeling (filename conventions, metadata
+databases, EXIF tags) — all of which can be silently altered without detection.
+
+The `umrs.security-label` assertion uses the C2PA spec's vendor-extension
+mechanism. It requires no changes to the C2PA standard, no cooperation from
+upstream signers, and is readable by any tool that can parse C2PA manifest
+JSON. It is a pure policy overlay on an open cryptographic standard.
 
 ### Files arriving without a C2PA manifest
 
@@ -511,19 +749,55 @@ would contain a `validation_status` entry with a `mismatch` code.
 ### Trust status derivation
 
 `derive_trust()` in `manifest.rs` inspects the `validation_status` array in
-each manifest's JSON:
+each manifest's JSON and returns one of five `TrustStatus` variants:
 
-| Condition | TrustStatus |
-|---|---|
-| Any status code contains `"revoked"` | `Revoked` |
-| Any code contains `"mismatch"` or `"failed"` | `Invalid` |
-| Code `"signingCredential.trusted"` is present | `Trusted` |
-| No validation_status array, or no matching codes | `Untrusted` |
+| Variant | Display | Condition | Meaning |
+|---|---|---|---|
+| `Trusted` | `TRUSTED` | Code `"signingCredential.trusted"` is present | Cert chain verified against a C2PA Trust List root CA |
+| `Untrusted` | `UNVERIFIED` | Codes present but no trusted/revoked/failed match | Signature exists but was not validated against a trust list |
+| `Invalid` | `INVALID` | Any code contains `"mismatch"` or `"failed"` | Signature verification failed or asset hash mismatch |
+| `Revoked` | `REVOKED` | Any code contains `"revoked"` | Signing certificate was revoked by the issuing CA |
+| `NoTrustList` | `NO TRUST LIST` | No `validation_status` array, or array is empty | No trust list configured — trust could not be evaluated |
 
 The c2pa SDK sets `"signingCredential.trusted"` only when the cert chain
 validates against a trust anchor in the C2PA Trust List. Self-signed ephemeral
-certs will always resolve to `Untrusted`, not `Invalid`. This is the correct
-and expected behavior.
+certs will resolve to `NO TRUST LIST` or `UNVERIFIED`, not `INVALID`. This is
+correct and expected — the signature is structurally valid but the signer's
+identity has not been verified against a trust anchor.
+
+**Why "UNVERIFIED" instead of "UNTRUSTED"?** The word "untrusted" implies the
+image is untrustworthy. `UNVERIFIED` communicates that trust has not been
+evaluated — a factual statement, not a judgment. Similarly, `NO TRUST LIST`
+tells the operator exactly what action is needed (configure a trust list)
+rather than implying something is wrong with the image.
+
+**Footnote annotations.** When a chain entry is marked `*[UNVERIFIED]` or
+`*[NO TRUST LIST]`, a footnote is printed below the chain explaining why:
+
+- Self-signed certs: `*[NO TRUST LIST] Self-signed certificate — not issued by a trusted CA`
+- No trust list: `*[NO TRUST LIST] No trust list configured — trust could not be evaluated`
+
+Footnotes are deduplicated by trust status — if all entries share the same
+status, a single footnote appears.
+
+### Timestamp behavior
+
+UMRS always records an ingest timestamp. When `ingest_file()` signs a file,
+it embeds a UTC timestamp in the `when` field of the `c2pa.actions` assertion.
+This is not a TSA (Time Stamp Authority) timestamp — it is a local clock
+timestamp recorded by the UMRS system at ingest time.
+
+For third-party manifests, the timestamp comes from two sources in priority
+order:
+
+1. `signature_info.time` — a TSA-certified timestamp (strongest, requires
+   network access to a TSA during signing)
+2. `when` field in the first `c2pa.actions` or `c2pa.actions.v2` assertion
+   (weaker, set by the signing software)
+
+If neither is present, the report shows `no timestamp provided`. This is
+a factual statement: the original signer chose not to record a timestamp. It
+is not a UMRS limitation.
 
 ---
 
@@ -554,20 +828,33 @@ $ cargo run --release --no-default-features --features system-openssl,internet \
 Chain of Custody — tests/sandbox/jamie_desk.png
 SHA-256: 3b6c04def733ee21d0fef1fa4e594e9a9b9c93132f5bd0a1a1473684a9f41cca
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  1   [UNKNOWN]      OpenAI
-                      Issuer : OpenAI
-                      Alg    : Es256
+  1   *[NO TRUST LIST]  Truepic Lens CLI in Sora
+                         Signed at : no timestamp provided
+                         Issuer    : OpenAI
+                         Alg       : Es256
+                         Generator : ChatGPT
 
-  2   [UNKNOWN]      OpenAI
-                      Issuer : OpenAI
-                      Alg    : Es256
+  2   *[NO TRUST LIST]  Truepic Lens CLI in Sora
+                         Signed at : no timestamp provided
+                         Issuer    : OpenAI
+                         Alg       : Es256
+                         Generator : ChatGPT
 
+────────────────────────────────────────────────────────
+  *[NO TRUST LIST] No trust list configured — trust could not be evaluated
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Both entries are signed with ES256. Trust status is UNKNOWN (not INVALID)
-because trust list validation is not yet configured. The chain is structurally
-valid.
+Both entries are signed with ES256. Trust status is `NO TRUST LIST` because
+no trust list is configured. The signer identity `Truepic Lens CLI in Sora`
+comes from the certificate's Common Name — this reveals that OpenAI uses
+Truepic's signing infrastructure (integrated into the Sora pipeline).
+The Issuer `OpenAI` is the certificate issuing organization. The Generator
+`ChatGPT` identifies the software that produced the manifest.
+
+The chain tells the full provenance story: OpenAI (cert issuer) authorized
+Truepic's signing tool (cert CN) running inside ChatGPT (generator) to sign
+this image.
 
 ### JSON manifest dump of the same image
 
@@ -601,18 +888,25 @@ $ cargo run --release --no-default-features --features system-openssl,internet \
 Chain of Custody — tests/sandbox/jamie_desk.png
 SHA-256: 3b6c04def733ee21d0fef1fa4e594e9a9b9c93132f5bd0a1a1473684a9f41cca
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  1   [UNKNOWN]      OpenAI
-                      Issuer : OpenAI
-                      Alg    : Es256
+  1   *[NO TRUST LIST]  Truepic Lens CLI in Sora
+                         Signed at : no timestamp provided
+                         Issuer    : OpenAI
+                         Alg       : Es256
+                         Generator : ChatGPT
 
-  2   [UNKNOWN]      OpenAI
-                      Issuer : OpenAI
-                      Alg    : Es256
+  2   *[NO TRUST LIST]  Truepic Lens CLI in Sora
+                         Signed at : no timestamp provided
+                         Issuer    : OpenAI
+                         Alg       : Es256
+                         Generator : ChatGPT
 
-  3   [UNKNOWN]      Unknown
-                      Issuer : Unknown
-                      Alg    : Es256
+  3   *[NO TRUST LIST]  My Organization (ephemeral — self-signed)
+                         Signed at : 2026-03-26T14:35:04Z
+                         Alg       : Es256
+                         Generator : UMRS Reference System 0.1.0
 
+────────────────────────────────────────────────────────
+  *[NO TRUST LIST] No trust list configured — trust could not be evaluated
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Hash consistency : PASS — file unchanged across all signing events
 UMRS action      : c2pa.published
@@ -626,7 +920,11 @@ Entry 3 is the UMRS ingest record. The tool:
 2. Chose `c2pa.published` because a prior manifest was present
 3. Embedded the OpenAI chain as a C2PA ingredient
 4. Signed with a fresh ES256 ephemeral certificate
-5. Verified hash consistency across all three signing events: **PASS**
+5. The signer name shows the `organization` from the TOML config, with
+   `(ephemeral — self-signed)` appended so it is visually obvious
+6. Generator shows `UMRS Reference System` with the crate version
+7. Verified hash consistency across all three signing events: **PASS**
+8. A single footnote covers all three entries: `*[NO TRUST LIST]`
 
 ### Signing an unsigned file
 
@@ -637,10 +935,13 @@ $ cargo run --release --no-default-features --features system-openssl,internet \
 Chain of Custody — tests/sandbox/wallpaper.jpeg
 SHA-256: de053eeb03f30afe55d5812df55da8aaf856173955fec8cf9d4f08f7408fdee2
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  1   [UNKNOWN]      Unknown
-                      Issuer : Unknown
-                      Alg    : Es256
+  1   *[NO TRUST LIST]  My Organization (ephemeral — self-signed)
+                         Signed at : 2026-03-26T14:35:04Z
+                         Alg       : Es256
+                         Generator : UMRS Reference System 0.1.0
 
+────────────────────────────────────────────────────────
+  *[NO TRUST LIST] Self-signed certificate — not issued by a trusted CA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Hash consistency : N/A  — no prior manifest (first signature)
 UMRS action      : c2pa.acquired
@@ -650,6 +951,17 @@ UMRS identity    : ephemeral self-signed cert (test mode — UNTRUSTED)
 
 No prior manifest, so the action is `c2pa.acquired` and there is a single
 chain entry.
+
+### Overwrite safeguard in action
+
+```
+$ cargo run -- c2pa tests/sandbox/jamie_umrs_signed.png --sign
+
+Error: Refusing to overwrite previously signed file: tests/sandbox/jamie_umrs_signed.png
+```
+
+The safeguard prevents accidental double-signing. Rename the file or use a
+different source to sign again.
 
 ---
 
@@ -674,7 +986,8 @@ may encounter edge cases in other manifest store layouts.
 **Trust list integration is not implemented.** The `TrustStatus::Trusted`
 variant exists in the type but can only be set by the c2pa SDK's validation
 layer when it has access to a trust list. The current build does not configure
-a trust list. All manifests resolve to UNTRUSTED or Unknown in practice.
+a trust list. All manifests resolve to `NO TRUST LIST` or `UNVERIFIED` in
+practice.
 
 **Logging is journald only.** The `systemd-journal-logger` backend is
 unconditional. Running on a system without journald (e.g., macOS, non-systemd

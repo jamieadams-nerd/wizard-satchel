@@ -37,7 +37,7 @@ pub fn parse_algorithm(alg: &str) -> Result<SigningAlg, InspectError> {
 /// Signing material resolved from `IdentityConfig`.
 pub enum SignerMode {
     /// Ephemeral self-signed cert generated at runtime (test/eval mode).
-    Ephemeral { alg: SigningAlg },
+    Ephemeral { alg: SigningAlg, organization: String },
     /// Production signing using customer-supplied cert + key.
     Credentials {
         alg:       SigningAlg,
@@ -69,7 +69,7 @@ pub fn resolve_signer_mode(
                 tsa_url: None,
             })
         }
-        _ => Ok(SignerMode::Ephemeral { alg }),
+        _ => Ok(SignerMode::Ephemeral { alg, organization: identity.organization.clone() }),
     }
 }
 
@@ -88,8 +88,8 @@ pub fn resolve_signer_mode(
 ///   - consistent with the algorithm the user configured for production
 pub fn build_signer(mode: &SignerMode) -> Result<c2pa::BoxedSigner, InspectError> {
     match mode {
-        SignerMode::Ephemeral { alg } => {
-            let (cert_pem, key_pem) = generate_ephemeral_cert(*alg)?;
+        SignerMode::Ephemeral { alg, organization } => {
+            let (cert_pem, key_pem) = generate_ephemeral_cert(*alg, organization)?;
             c2pa::create_signer::from_keys(&cert_pem, &key_pem, *alg, None)
                 .map_err(InspectError::C2pa)
         }
@@ -111,7 +111,7 @@ pub fn build_signer(mode: &SignerMode) -> Result<c2pa::BoxedSigner, InspectError
 ///
 /// The certificate is marked with `CN=UMRS ephemeral (test mode — UNTRUSTED)`
 /// so it is visually obvious in any validator output.
-fn generate_ephemeral_cert(alg: SigningAlg) -> Result<(Vec<u8>, Vec<u8>), InspectError> {
+fn generate_ephemeral_cert(alg: SigningAlg, organization: &str) -> Result<(Vec<u8>, Vec<u8>), InspectError> {
     let (nid, digest) = match alg {
         SigningAlg::Es384 => (Nid::SECP384R1,        MessageDigest::sha384()),
         SigningAlg::Es512 => (Nid::SECP521R1,        MessageDigest::sha512()),
@@ -127,11 +127,15 @@ fn generate_ephemeral_cert(alg: SigningAlg) -> Result<(Vec<u8>, Vec<u8>), Inspec
     let pkey = PKey::from_ec_key(ec_key)
         .map_err(|e| InspectError::Signing(format!("PKey wrap: {e}")))?;
 
-    // Build self-signed X.509 cert.
+    // Build self-signed X.509 cert with the configured organization name.
+    let cn = format!("{organization} (ephemeral — self-signed)");
     let mut name_builder = X509NameBuilder::new()
         .map_err(|e| InspectError::Signing(format!("X509 name: {e}")))?;
     name_builder
-        .append_entry_by_text("CN", "UMRS ephemeral (test mode — UNTRUSTED)")
+        .append_entry_by_text("O", organization)
+        .map_err(|e| InspectError::Signing(format!("X509 O: {e}")))?;
+    name_builder
+        .append_entry_by_text("CN", &cn)
         .map_err(|e| InspectError::Signing(format!("X509 CN: {e}")))?;
     let name = name_builder.build();
 

@@ -45,8 +45,17 @@ pub struct IngestResult {
 pub fn ingest_file(
     source_path: &Path,
     output_path: Option<&Path>,
+    marking: Option<&str>,
     config: &UmrsConfig,
 ) -> Result<IngestResult, InspectError> {
+    // 0. Guard: refuse to re-sign a file that was already signed by UMRS.
+    //    This prevents accidental overwrites and double-signing.
+    if is_umrs_signed(source_path) {
+        return Err(InspectError::AlreadySigned(
+            source_path.display().to_string(),
+        ));
+    }
+
     // 1. Compute SHA-256 of source file bytes.
     let sha256 = sha256_hex(source_path)?;
 
@@ -88,14 +97,17 @@ pub fn ingest_file(
     {
         let mut cgi = c2pa::ClaimGeneratorInfo::default();
         cgi.name.clone_from(&config.identity.claim_generator);
+        cgi.version = Some(env!("CARGO_PKG_VERSION").to_string());
         builder.set_claim_generator_info(cgi);
     }
 
-    // Action assertion.
+    // Action assertion with a timestamp recording when UMRS ingested the file.
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let action_assertion = serde_json::json!({
         "actions": [
             {
                 "action": action,
+                "when": now,
                 "reason": reason,
                 "softwareAgent": config.identity.claim_generator,
             }
@@ -104,6 +116,18 @@ pub fn ingest_file(
     builder
         .add_assertion("c2pa.actions", &action_assertion)
         .map_err(InspectError::C2pa)?;
+
+    // Security label assertion — embeds a marking string (e.g. "CUI" or
+    // "CUI//SP-CTI//NOFORN") as a tamper-evident, cryptographically signed
+    // assertion in the manifest.
+    if let Some(label) = marking {
+        let label_assertion = serde_json::json!({
+            "marking": label,
+        });
+        builder
+            .add_assertion("umrs.security-label", &label_assertion)
+            .map_err(InspectError::C2pa)?;
+    }
 
     // If there's an existing manifest, embed it as an ingredient.
     if had_manifest {
@@ -163,6 +187,13 @@ pub fn sha256_hex(path: &Path) -> Result<String, InspectError> {
     let bytes = std::fs::read(path).map_err(InspectError::Io)?;
     let digest = Sha256::digest(&bytes);
     Ok(hex::encode(digest))
+}
+
+/// Check whether a file was previously signed by UMRS (by filename convention).
+fn is_umrs_signed(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|stem| stem.ends_with("_umrs_signed"))
 }
 
 /// Derive a default output path by inserting `_umrs_signed` before the extension.

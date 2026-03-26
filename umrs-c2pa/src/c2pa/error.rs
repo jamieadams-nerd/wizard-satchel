@@ -18,4 +18,7 @@ pub enum InspectError {
 
     #[error("Algorithm '{0}' is not in the FIPS-safe allowed set")]
     UnsafeAlgorithm(String),
+
+    #[error("Refusing to overwrite previously signed file: {0}")]
+    AlreadySigned(String),
 }

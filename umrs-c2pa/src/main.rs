@@ -41,6 +41,17 @@ enum Commands {
         #[arg(long)]
         json: bool,
 
+        /// Emit the UMRS-parsed evidence chain as JSON.
+        /// Unlike --json (raw c2pa SDK output), this returns the parsed chain
+        /// with trust status, generator, and version fields.
+        #[arg(long)]
+        chain_json: bool,
+
+        /// Security marking to embed in the manifest (e.g. "CUI" or "CUI//SP-CTI//NOFORN").
+        /// Only applies when --sign is used. Stored as a `umrs.security-label` assertion.
+        #[arg(long)]
+        marking: Option<String>,
+
         /// Write the signed output to this path (default: <file>_`umrs_signed`.<ext>).
         #[arg(long)]
         output: Option<PathBuf>,
@@ -86,8 +97,8 @@ fn main() -> Result<()> {
     log::set_max_level(config.log_level_filter());
 
     match cli.command {
-        Commands::C2pa { file, sign, json, output } => {
-            cmd_c2pa(&file, sign, json, output.as_deref(), &config)?;
+        Commands::C2pa { file, sign, json, chain_json, marking, output } => {
+            cmd_c2pa(&file, sign, json, chain_json, marking.as_deref(), output.as_deref(), &config)?;
         }
         Commands::Config { action } => match action {
             ConfigAction::Validate => {
@@ -108,6 +119,8 @@ fn cmd_c2pa(
     file: &std::path::Path,
     sign: bool,
     json: bool,
+    chain_json: bool,
+    marking: Option<&str>,
     output: Option<&std::path::Path>,
     config: &UmrsConfig,
 ) -> Result<()> {
@@ -124,12 +137,21 @@ fn cmd_c2pa(
         return Ok(());
     }
 
+    // Chain JSON mode — emit parsed evidence chain as JSON and exit.
+    if chain_json {
+        match c2pa::chain_json(file) {
+            Ok(j)  => println!("{j}"),
+            Err(e) => eprintln!("No manifest or read error: {e}"),
+        }
+        return Ok(());
+    }
+
     let sha256 = sha256_hex(file)
         .with_context(|| format!("Failed to hash file: {}", file.display()))?;
 
     if sign {
         // Ingest mode: sign the file, display the resulting chain.
-        let result = c2pa::ingest_file(file, output, config)
+        let result = c2pa::ingest_file(file, output, marking, config)
             .with_context(|| format!("Ingest failed for: {}", file.display()))?;
 
         let chain = read_chain(&result.output_path)

@@ -626,3 +626,75 @@ Usage: inspect [OPTIONS] <COMMAND>
 
 
 
+
+
+
+
+CentOS::goldeneye ../wizard-satchel/umrs-c2pa $ cargo run -- --config /etc/umrs/umrs-c2pa.toml  c2pa tests/sandbox/jamie_desk.png --sign --marking "CUI//CP-CTI//NOFORN"
+
+
+
+Chain of Custody — tests/sandbox/jamie_desk.png
+SHA-256: 3b6c04def733ee21d0fef1fa4e594e9a9b9c93132f5bd0a1a1473684a9f41cca
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  1   *[NO TRUST LIST]  Truepic Lens CLI in Sora
+                         Signed at : no timestamp provided
+                         Issuer    : OpenAI
+                         Alg       : Es256
+                         Generator : ChatGPT
+
+  2   *[NO TRUST LIST]  Truepic Lens CLI in Sora
+                         Signed at : no timestamp provided
+                         Issuer    : OpenAI
+                         Alg       : Es256
+                         Generator : ChatGPT
+
+  3   *[NO TRUST LIST]  UMRS (ephemeral — self-signed)
+                         Signed at : 2026-03-26T14:48:15Z UTC
+                         Issuer    : UMRS
+                         Alg       : Es256
+                         Generator : UMRS Reference System/1.0 0.1.0
+                         Marking   : CUI//CP-CTI//NOFORN
+
+────────────────────────────────────────────────────────
+  *[NO TRUST LIST] No trust list configured — trust could not be evaluated
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Hash consistency : PASS — file unchanged across all signing events
+UMRS action      : c2pa.published
+UMRS output      : tests/sandbox/jamie_desk_umrs_signed.png
+UMRS identity    : ephemeral self-signed cert (test mode — UNTRUSTED)
+
+
+
+● Good instinct, but GIMP would actually strip the manifest entirely when it saves — it doesn't know about JUMBF/C2PA
+  boxes. You'd get "no C2PA manifest found" instead of a tamper detection. Not the test you want.
+
+  Here's what will actually demonstrate the three failure modes:
+
+  Test 1: Verify a clean signed file
+  cargo run -- c2pa tests/sandbox/jamie.png --sign --marking "CUI//SP-CTI" --output /tmp/test_clean.png
+  cargo run -- c2pa /tmp/test_clean.png
+
+  Test 2: Tamper with the image bytes (flip a pixel)
+  # Copy the signed file, corrupt a byte in the image data area
+  cp /tmp/test_clean.png /tmp/test_tampered.png
+  printf '\xff' | dd of=/tmp/test_tampered.png bs=1 seek=5000 count=1 conv=notrunc 2>/dev/null
+  cargo run -- c2pa /tmp/test_tampered.png
+  This should show [INVALID] — the assertion.dataHash.mismatch fires because the pixel data no longer matches the hash
+  that was signed.
+
+  Test 3: GIMP strips the manifest
+  Open the signed file in GIMP, draw on it, export/save. Then:
+  cargo run -- c2pa /tmp/test_gimp_edited.png
+  This shows (no C2PA manifest found) — GIMP discarded the JUMBF box entirely.
+
+  Test 4: Verify the marking survives the chain
+  # Sign an OpenAI image with a marking, then read it back
+  cargo run -- c2pa tests/sandbox/jamie_desk.png --sign --marking "CUI" --output /tmp/test_chain.png
+  cargo run -- c2pa /tmp/test_chain.png --chain-json
+  The marking appears on entry 3 (UMRS), entries 1-2 (OpenAI) have null.
+
+
+
+
+

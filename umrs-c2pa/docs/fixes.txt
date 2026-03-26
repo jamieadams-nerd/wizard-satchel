@@ -29,4 +29,22 @@ I think one more layer of cool, is the adding the generator information:
 
 Anything else about the Issuer? 
 
-What does unknown mean? 
+What does unknown mean?
+
+
+    1   *[NO TRUST LIST]  Truepic Lens CLI in Sora    ← cert CN: who physically signed
+                           Issuer    : OpenAI          ← cert issuer: who authorized the signer
+                           Alg       : Es256           ← FIPS-safe algorithm
+                           Generator : ChatGPT         ← software that produced the manifest
+
+  That tells the full story: OpenAI issued a cert to Truepic's signing tool (integrated into Sora), which was invoked
+  by ChatGPT to sign the image. The footnote explains why trust wasn't evaluated. Clean.
+
+
+
+Truepic, by the way — they're a content authenticity company. OpenAI contracted with them for C2PA signing
+  infrastructure. That's why the cert CN says "Truepic Lens CLI in Sora" — it's Truepic's signing tool running inside
+  OpenAI's Sora image generation pipeline. The cert was issued by OpenAI (they're the CA), but Truepic's tool does the
+  actual signing operation.
+
+

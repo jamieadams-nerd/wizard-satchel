@@ -100,7 +100,7 @@ fn test_ingest_unsigned_file_produces_acquired_action() {
     let out = temp_output("test_ingest_unsigned_output.jpg");
     let config = default_config();
 
-    let result = ingest_file(&source, Some(&out), &config)
+    let result = ingest_file(&source, Some(&out), None, &config)
         .expect("ingest_file failed");
 
     assert!(!result.had_manifest);
@@ -119,7 +119,7 @@ fn test_ingest_signed_file_produces_published_action() {
     let out = temp_output("test_ingest_signed_output.jpg");
     let config = default_config();
 
-    let result = ingest_file(&source, Some(&out), &config)
+    let result = ingest_file(&source, Some(&out), None, &config)
         .expect("ingest_file failed");
 
     assert!(result.had_manifest);
@@ -136,7 +136,7 @@ fn test_ingest_output_has_manifest() {
     let out = temp_output("test_ingest_output_has_manifest.jpg");
     let config = default_config();
 
-    ingest_file(&source, Some(&out), &config).expect("ingest_file failed");
+    ingest_file(&source, Some(&out), None, &config).expect("ingest_file failed");
     assert!(has_manifest(&out), "signed output should have a manifest");
 
     let _ = std::fs::remove_file(&out);
@@ -149,7 +149,7 @@ fn test_ingest_sha256_matches_source() {
     let out = temp_output("test_ingest_sha256_match.jpg");
     let config = default_config();
 
-    let result = ingest_file(&source, Some(&out), &config).expect("ingest_file failed");
+    let result = ingest_file(&source, Some(&out), None, &config).expect("ingest_file failed");
     let direct_hash = sha256_hex(&source).unwrap();
 
     assert_eq!(result.sha256, direct_hash, "ingest SHA-256 must match direct hash of source");
@@ -166,7 +166,7 @@ fn test_ingest_png_file() {
     let out = temp_output("test_ingest_unsigned_output.png");
     let config = default_config();
 
-    let result = ingest_file(&source, Some(&out), &config)
+    let result = ingest_file(&source, Some(&out), None, &config)
         .expect("ingest_file failed for PNG");
 
     assert_eq!(result.action, "c2pa.acquired");

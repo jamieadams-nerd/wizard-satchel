@@ -1,4 +1,4 @@
-use crate::c2pa::{ingest::IngestResult, manifest::ChainEntry};
+use crate::c2pa::{ingest::IngestResult, manifest::{ChainEntry, TrustStatus}};
 
 const SEPARATOR: &str = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
 const THIN_SEP:  &str = "────────────────────────────────────────────────────────";
@@ -15,20 +15,75 @@ pub fn print_chain(path: &str, sha256: &str, chain: &[ChainEntry], ingest: Optio
     if chain.is_empty() {
         println!("  (no C2PA manifest found)");
     } else {
+        // Collect unique footnotes keyed by their display label so identical
+        // statuses across entries produce a single footnote line.
+        let mut footnote_set: std::collections::BTreeMap<String, &str> =
+            std::collections::BTreeMap::new();
+
         for (i, entry) in chain.iter().enumerate() {
-            let trust_tag = format!("[{}]", entry.trust_status);
+            let idx = i + 1;
+
+            // Detect self-signed: issuer == signer (cert signs itself).
+            let is_self_signed = entry.signer_name == entry.issuer
+                && entry.issuer != "Unknown";
+
+            // Build the trust tag with asterisk for entries that need a footnote.
+            let (trust_tag, has_footnote) = match (&entry.trust_status, is_self_signed) {
+                (TrustStatus::Untrusted, true) | (TrustStatus::NoTrustList, true) => {
+                    let label = format!("{}", entry.trust_status);
+                    footnote_set.entry(label)
+                        .or_insert("Self-signed certificate — not issued by a trusted CA");
+                    (format!("*[{}]", entry.trust_status), true)
+                }
+                (TrustStatus::NoTrustList, false) => {
+                    let label = format!("{}", entry.trust_status);
+                    footnote_set.entry(label)
+                        .or_insert("No trust list configured — trust could not be evaluated");
+                    (format!("*[{}]", entry.trust_status), true)
+                }
+                _ => (format!("[{}]", entry.trust_status), false),
+            };
+
+            let pad = if has_footnote { 16 } else { 14 };
             println!(
-                "  {:<3} {:<13}  {}",
-                i + 1,
+                "  {:<3} {:<pad$}  {}",
+                idx,
                 trust_tag,
                 entry.signer_name
             );
-            if let Some(ts) = &entry.signed_at {
-                println!("       {:<13}  Signed : {}", "", ts);
+
+            match &entry.signed_at {
+                Some(ts) => println!("       {:<pad$}  Signed at : {} UTC", "", ts),
+                None     => println!("       {:<pad$}  Signed at : no timestamp provided", ""),
             }
-            println!("       {:<13}  Issuer : {}", "", entry.issuer);
-            println!("       {:<13}  Alg    : {}", "", entry.algorithm);
+
+            // Only show Issuer if it differs from the top-level signer name.
+            if entry.issuer != entry.signer_name {
+                println!("       {:<pad$}  Issuer    : {}", "", entry.issuer);
+            }
+
+            println!("       {:<pad$}  Alg       : {}", "", entry.algorithm);
+
+            // Generator + version (e.g. "ChatGPT 0.67.1")
+            let gen_display = match &entry.generator_version {
+                Some(v) => format!("{} {v}", entry.generator),
+                None    => entry.generator.clone(),
+            };
+            println!("       {:<pad$}  Generator : {}", "", gen_display);
+
+            // Security label / marking, if present.
+            if let Some(label) = &entry.security_label {
+                println!("       {:<pad$}  Marking   : {}", "", label);
+            }
             println!();
+        }
+
+        // Print deduplicated footnotes keyed by trust status label.
+        if !footnote_set.is_empty() {
+            println!("{THIN_SEP}");
+            for (label, explanation) in &footnote_set {
+                println!("  *[{label}] {explanation}");
+            }
         }
     }
 

@@ -1,0 +1,49 @@
+# umrs-c2pa.toml — UMRS C2PA signing configuration
+#
+# Run `inspect config validate --config <this file>` to verify before use.
+# Run `inspect config generate --output <path>` to regenerate this template.
+
+[identity]
+# Human-readable name embedded in every manifest produced by this system.
+claim_generator = "UMRS Reference System/1.0"
+
+# Organization name for display in chain-of-custody reports.
+organization = "My Organization"
+
+# Path to PEM-encoded signing certificate chain (leaf cert first, root last).
+# If omitted, an ephemeral self-signed cert is generated at runtime (test mode).
+# Manifests signed in test mode will be marked UNTRUSTED by external validators.
+#cert_chain = "/etc/umrs/certs/signing.pem"
+
+# Path to PEM-encoded private key corresponding to the leaf certificate.
+#private_key = "/etc/umrs/certs/signing.key"
+
+# Signing algorithm. Must be in the FIPS-safe set.
+# Allowed : es256 | es384 | es512 | ps256 | ps384 | ps512
+# Excluded: ed25519 — unreliable on FIPS-enabled RHEL
+# Strongest FIPS+C2PA intersection: es512
+algorithm = "es256"
+
+[timestamp]
+# Time Stamp Authority URL for trusted signing timestamps.
+# Omit (or comment out) to sign without a TSA timestamp.
+# tsa_url = "http://timestamp.digicert.com"
+
+[policy]
+# Action label and reason for files arriving WITHOUT an existing C2PA manifest.
+# c2pa.acquired = "we received this; we are not the creator"
+unsigned_action = "c2pa.acquired"
+unsigned_reason = "Received at UMRS trusted ingest dropbox. Origin unknown. No modifications made."
+
+# Action label and reason for files arriving WITH an existing C2PA manifest.
+# c2pa.published = "we forwarded this as-is"
+signed_action = "c2pa.published"
+signed_reason = "Received at UMRS trusted ingest dropbox with existing provenance. No modifications made."
+
+[logging]
+# Enable or disable all logging output.
+enabled = true
+
+# Minimum log level: off | error | warn | info | debug | trace
+# Set to "off" in production if journald volume is a concern.
+level = "info"
