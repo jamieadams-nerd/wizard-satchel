@@ -1,0 +1,269 @@
+.\" SPDX-License-Identifier: MIT
+.\" Copyright (c) 2025 Jamie Adams
+.TH UMRS-C2PA 1 "2026-03-27" "umrs-c2pa 0.1.0" "UMRS Tools"
+.SH NAME
+umrs-c2pa \- C2PA media inspection and signing tool
+.SH SYNOPSIS
+.B umrs-c2pa
+.RI [ OPTIONS ]
+.I FILE
+.br
+.B umrs-c2pa
+.RI [ OPTIONS ]
+.B \-\-sign
+.I FILE
+.br
+.B umrs-c2pa creds generate
+.RI [ OPTIONS ]
+.br
+.B umrs-c2pa creds validate
+.br
+.B umrs-c2pa config validate
+.br
+.B umrs-c2pa config generate
+.SH DESCRIPTION
+.B umrs-c2pa
+inspects media files for C2PA (Coalition for Content Provenance and
+Authenticity) manifests and manages chain-of-custody signing for the
+Unified Media Review System (UMRS).
+.PP
+When given a file with no subcommand, it reads the C2PA manifest store and
+displays the chain of custody \(em who signed the file, when, with what
+algorithm, and whether the signature is trusted.
+.PP
+With
+.BR \-\-sign ,
+it ingests the file into the UMRS chain of custody by signing it with a
+new C2PA manifest containing action assertions, optional security markings,
+and the signer\(cqs identity.
+.SH OPTIONS
+.TP
+.BI \-\-config " PATH"
+Path to the UMRS configuration file.
+Default:
+.IR umrs-c2pa.toml .
+.TP
+.BR \-v ", " \-\-verbose
+Show step-by-step progress messages on stderr.
+Useful for understanding what the tool is doing and for troubleshooting.
+Does not affect structured log output (journald).
+.TP
+.B \-\-sign
+Sign (ingest) the file and record a UMRS chain-of-custody entry.
+Without this flag, the file is inspected read-only.
+.TP
+.B \-\-json
+Emit the full manifest store as JSON instead of the formatted report.
+This is the raw output from the c2pa SDK.
+.TP
+.B \-\-chain\-json
+Emit the UMRS-parsed evidence chain as JSON.
+Returns structured data with trust status, signer, algorithm, generator,
+and security label fields.
+.TP
+.BI \-\-marking " STRING"
+Security marking to embed in the manifest (e.g., "CUI" or "CUI//SP-CTI//NOFORN").
+Only applies when
+.B \-\-sign
+is used.
+Stored as a tamper-evident
+.I umrs.security-label
+assertion.
+.TP
+.BI \-\-output " PATH"
+Write the signed output to this path.
+Default: appends
+.I _umrs_signed
+before the file extension.
+.TP
+.BR \-h ", " \-\-help
+Print help message.
+.TP
+.BR \-V ", " \-\-version
+Print version.
+.SH SUBCOMMANDS
+.SS creds generate
+Generate a new signing certificate and private key.
+.TP
+.BI \-\-output " DIR"
+Directory to write
+.I signing.pem
+and
+.IR signing.key .
+Default: current directory.
+.TP
+.B \-\-csr
+Generate a Certificate Signing Request instead of a self-signed certificate.
+Submit the CSR to your Certificate Authority for a production certificate.
+.TP
+.BI \-\-days " N"
+Certificate validity in days.
+Ignored with
+.BR \-\-csr .
+Default: 365.
+.PP
+After generating, set the paths in
+.IR umrs-c2pa.toml :
+.PP
+.RS
+.nf
+[identity]
+cert_chain  = "/path/to/signing.pem"
+private_key = "/path/to/signing.key"
+.fi
+.RE
+.SS creds validate
+Validate the configured signing credentials.
+Checks that cert and key files exist, are valid PEM, match each other,
+and reports certificate details (subject, issuer, validity dates, algorithm).
+.SS config validate
+Run preflight checks on the configuration file.
+Verifies required fields, certificate and key paths, algorithm safety,
+TSA reachability, and trust list configuration.
+.SS config generate
+Generate a commented starter configuration file.
+.TP
+.BI \-\-output " PATH"
+Write the generated config to this path.
+If omitted, prints to stdout.
+.SH ALGORITHMS
+Only FIPS-safe algorithms are permitted:
+.PP
+.TS
+l l l.
+Algorithm	Type	Details
+_
+es256	ECDSA	P-256 / SHA-256 / 256-bit
+es384	ECDSA	P-384 / SHA-384 / 384-bit
+es512	ECDSA	P-521 / SHA-512 / 521-bit
+ps256	RSA-PSS	SHA-256 / 2048+ bit
+ps384	RSA-PSS	SHA-384 / 2048+ bit
+ps512	RSA-PSS	SHA-512 / 2048+ bit
+.TE
+.PP
+.B ed25519
+is intentionally excluded \(em unreliable on FIPS-enabled RHEL systems.
+.SH TRUST LISTS
+Trust validation requires PEM-format trust anchor files configured in
+.IR umrs-c2pa.toml :
+.PP
+.RS
+.nf
+[trust]
+trust_anchors = "/path/to/c2pa-anchors.pem"
+user_anchors  = "/path/to/org-roots.pem"
+allowed_list  = "/path/to/allowed-signers.pem"
+trust_config  = "/path/to/ekus.cfg"
+.fi
+.RE
+.PP
+Without trust configuration, all manifests display NO TRUST LIST.
+See
+.I docs/trust-maintenance.md
+for update procedures.
+.SH CONFIGURATION FILE
+Default:
+.IR umrs-c2pa.toml .
+Sections:
+.TP
+.B [identity]
+Claim generator name, organization, certificate/key paths, algorithm.
+.TP
+.B [timestamp]
+Time Stamp Authority URL.
+.TP
+.B [policy]
+Action labels and reason strings for signed and unsigned files.
+.TP
+.B [trust]
+Trust anchor PEM paths, EKU configuration, OCSP responder.
+.TP
+.B [logging]
+Enable/disable logging, minimum log level.
+.SH QUICK START
+.PP
+.RS
+.nf
+# 1. Generate a config file
+umrs-c2pa config generate --output umrs-c2pa.toml
+
+# 2. Generate signing credentials
+umrs-c2pa creds generate --output ./certs
+
+# 3. Edit umrs-c2pa.toml \(em set cert_chain and private_key
+
+# 4. Verify everything
+umrs-c2pa config validate
+umrs-c2pa creds validate
+
+# 5. Inspect a file
+umrs-c2pa photo.jpg
+
+# 6. Sign a file
+umrs-c2pa --sign photo.jpg
+
+# 7. Sign with a security marking
+umrs-c2pa --sign --marking CUI photo.jpg
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+File or manifest error, or validation failure.
+.TP
+.B 2
+Usage error (bad arguments).
+.SH FILES
+.TP
+.I umrs-c2pa.toml
+Default configuration file (searched in current directory).
+.TP
+.I signing.pem
+Certificate chain (PEM, leaf first).
+.TP
+.I signing.key
+Private key (PEM, PKCS#8).
+Mode 0600 recommended.
+.SH ENVIRONMENT
+.TP
+.B C2PA_FIXTURES_DIR
+Override path to c2pa-rs test fixtures (for integration tests only).
+.SH SECURITY CONSIDERATIONS
+.IP \(bu 2
+Private keys are written with mode 0600 on Unix systems.
+The tool refuses to overwrite existing key files.
+.IP \(bu 2
+Only FIPS 140-2/140-3 safe algorithms are permitted.
+ed25519 is excluded by policy.
+.IP \(bu 2
+Security markings (e.g., CUI) are embedded as cryptographically signed
+assertions.
+Tampering with the marking invalidates the manifest signature.
+.IP \(bu 2
+Ephemeral (test mode) certificates are clearly labeled in the CN field
+and produce UNVERIFIED trust status.
+.SH STANDARDS
+.TP
+.B C2PA
+Coalition for Content Provenance and Authenticity Technical Specification
+.RI ( https://c2pa.org )
+.TP
+.B FIPS 186-5
+Digital Signature Standard (ECDSA, RSA-PSS)
+.TP
+.B NIST SP 800-53 AU-3
+Audit Record Content
+.SH AUTHORS
+Jamie Adams
+.SH LICENSE
+MIT License.
+See LICENSE file.
+.PP
+This tool depends on the c2pa crate by Adobe (MIT OR Apache-2.0).
+See THIRD-PARTY-NOTICES.md.
+.SH SEE ALSO
+.BR openssl (1),
+.BR c2patool (1)

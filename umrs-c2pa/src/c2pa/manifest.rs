@@ -1,8 +1,13 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Jamie Adams
+
 use std::path::Path;
 
 use serde::Serialize;
 
 use crate::c2pa::error::InspectError;
+#[allow(unused_imports)]
+use crate::verbose;
 
 /// Trust evaluation for a single entry in the chain of custody.
 ///
@@ -38,10 +43,10 @@ pub enum TrustStatus {
 impl std::fmt::Display for TrustStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TrustStatus::Trusted     => write!(f, "TRUSTED"),
-            TrustStatus::Untrusted   => write!(f, "UNVERIFIED"),
-            TrustStatus::Invalid     => write!(f, "INVALID"),
-            TrustStatus::Revoked     => write!(f, "REVOKED"),
+            TrustStatus::Trusted => write!(f, "TRUSTED"),
+            TrustStatus::Untrusted => write!(f, "UNVERIFIED"),
+            TrustStatus::Invalid => write!(f, "INVALID"),
+            TrustStatus::Revoked => write!(f, "REVOKED"),
             TrustStatus::NoTrustList => write!(f, "NO TRUST LIST"),
         }
     }
@@ -66,7 +71,7 @@ pub struct ChainEntry {
     /// Signing algorithm used (e.g. "es256").
     pub algorithm: String,
 
-    /// Claim generator name (e.g. "ChatGPT", "UMRS Reference System").
+    /// Claim generator name (e.g. "`ChatGPT`", "UMRS Reference System").
     pub generator: String,
 
     /// Claim generator version, if available (e.g. "0.67.1").
@@ -80,25 +85,35 @@ pub struct ChainEntry {
 ///
 /// Returns entries ordered oldest-first (deepest ingredient → active manifest).
 /// Returns an empty `Vec` if the file has no manifest.
+///
+/// # Errors
+///
+/// Returns `InspectError::C2pa` if the manifest store cannot be read, or
+/// `InspectError::Config` if the manifest JSON is malformed.
 pub fn read_chain(path: &Path) -> Result<Vec<ChainEntry>, InspectError> {
+    verbose!("Opening C2PA manifest store...");
     let reader = match c2pa::Reader::from_file(path) {
-        Ok(r)  => r,
+        Ok(r) => r,
         Err(c2pa::Error::JumbfNotFound | c2pa::Error::ProvenanceMissing) => {
+            verbose!("No C2PA manifest found in file");
             return Ok(Vec::new());
         }
         Err(e) => return Err(InspectError::C2pa(e)),
     };
 
+    verbose!("Parsing manifest store JSON...");
     let store_json: serde_json::Value = serde_json::from_str(&reader.json())
         .map_err(|e| InspectError::Config(format!("manifest JSON parse error: {e}")))?;
 
+    verbose!("Walking chain of custody...");
     let mut entries: Vec<ChainEntry> = Vec::new();
     collect_entries(&store_json, &mut entries);
+    verbose!("Found {} chain entries", entries.len());
     Ok(entries)
 }
 
 /// Returns `true` if the file contains any C2PA manifest data.
-#[must_use] 
+#[must_use]
 pub fn has_manifest(path: &Path) -> bool {
     c2pa::Reader::from_file(path).is_ok()
 }
@@ -107,6 +122,11 @@ pub fn has_manifest(path: &Path) -> bool {
 ///
 /// This is the **raw c2pa SDK output** — the complete manifest store as the
 /// crate emits it, including all assertions, ingredients, and signature info.
+///
+/// # Errors
+///
+/// Returns `InspectError::C2pa` if the manifest store cannot be read, or
+/// `InspectError::Config` if JSON parsing or serialization fails.
 pub fn manifest_json(path: &Path) -> Result<String, InspectError> {
     let reader = c2pa::Reader::from_file(path).map_err(InspectError::C2pa)?;
     let val: serde_json::Value = serde_json::from_str(&reader.json())
@@ -139,6 +159,11 @@ pub fn manifest_json(path: &Path) -> Result<String, InspectError> {
 /// ```
 ///
 /// Returns an empty array `[]` if the file has no C2PA manifest.
+///
+/// # Errors
+///
+/// Returns `InspectError::C2pa` if the manifest store cannot be read, or
+/// `InspectError::Config` if JSON serialization fails.
 pub fn chain_json(path: &Path) -> Result<String, InspectError> {
     let chain = read_chain(path)?;
     serde_json::to_string_pretty(&chain)
@@ -147,6 +172,11 @@ pub fn chain_json(path: &Path) -> Result<String, InspectError> {
 
 /// Returns the most recent signer name and timestamp from the active manifest.
 /// Used for the ingest log entry in the "has manifest" case.
+///
+/// # Errors
+///
+/// Returns `InspectError::C2pa` if the manifest store cannot be read, or
+/// `InspectError::Config` if the manifest JSON is malformed.
 pub fn last_signer(path: &Path) -> Result<Option<(String, Option<String>)>, InspectError> {
     let chain = read_chain(path)?;
     Ok(chain.last().map(|e| (e.signer_name.clone(), e.signed_at.clone())))
@@ -156,18 +186,20 @@ pub fn last_signer(path: &Path) -> Result<Option<(String, Option<String>)>, Insp
 // The store JSON has an `active_manifest` key and a `manifests` map.
 // We walk from the active manifest back through ingredients.
 fn collect_entries(store: &serde_json::Value, out: &mut Vec<ChainEntry>) {
-    let Some(manifests) = store.get("manifests").and_then(|m| m.as_object()) else { return };
-    let Some(active_id) = store.get("active_manifest").and_then(|v| v.as_str()) else { return };
+    let Some(manifests) = store.get("manifests").and_then(|m| m.as_object()) else {
+        return;
+    };
+    let Some(active_id) = store.get("active_manifest").and_then(|v| v.as_str()) else {
+        return;
+    };
 
     // Walk the chain recursively: ingredients first, then the active manifest.
     walk_manifest(active_id, manifests, out, &mut std::collections::HashSet::new());
 
     // Check store-level validation_status for tampering indicators that
     // affect the entire chain (e.g. ingredient.manifest.mismatch).
-    let store_tampered = store
-        .get("validation_status")
-        .and_then(|v| v.as_array())
-        .is_some_and(|statuses| {
+    let store_tampered =
+        store.get("validation_status").and_then(|v| v.as_array()).is_some_and(|statuses| {
             statuses.iter().any(|s| {
                 s.get("code")
                     .and_then(|v| v.as_str())
@@ -195,7 +227,9 @@ fn walk_manifest(
         return; // cycle guard
     }
 
-    let Some(manifest) = manifests.get(id) else { return };
+    let Some(manifest) = manifests.get(id) else {
+        return;
+    };
 
     // Recurse into ingredients first (oldest-first ordering).
     if let Some(ingredients) = manifest.get("ingredients").and_then(|v| v.as_array()) {
@@ -256,8 +290,14 @@ fn extract_entry(manifest: &serde_json::Value) -> ChainEntry {
     let security_label = extract_security_label(manifest);
 
     ChainEntry {
-        signer_name, issuer, signed_at, trust_status, algorithm,
-        generator, generator_version, security_label,
+        signer_name,
+        issuer,
+        signed_at,
+        trust_status,
+        algorithm,
+        generator,
+        generator_version,
+        security_label,
     }
 }
 
@@ -268,10 +308,8 @@ fn extract_action_when(manifest: &serde_json::Value) -> Option<String> {
     for assertion in assertions {
         let label = assertion.get("label").and_then(|v| v.as_str()).unwrap_or("");
         if label == "c2pa.actions" || label == "c2pa.actions.v2" {
-            let actions = assertion
-                .get("data")
-                .and_then(|d| d.get("actions"))
-                .and_then(|a| a.as_array())?;
+            let actions =
+                assertion.get("data").and_then(|d| d.get("actions")).and_then(|a| a.as_array())?;
             for action in actions {
                 if let Some(when) = action.get("when").and_then(|v| v.as_str()) {
                     return Some(when.to_string());
@@ -310,20 +348,17 @@ fn extract_security_label(manifest: &serde_json::Value) -> Option<String> {
 /// form `"Name/Version"`.
 fn extract_generator_info(manifest: &serde_json::Value) -> (String, Option<String>) {
     // Try claim_generator_info array first (C2PA 2.x style).
-    if let Some(info_arr) = manifest.get("claim_generator_info").and_then(|v| v.as_array()) {
-        if let Some(first) = info_arr.first() {
-            let name = first.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    if let Some(info_arr) = manifest.get("claim_generator_info").and_then(|v| v.as_array())
+        && let Some(first) = info_arr.first()
+    {
+        let name = first.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
 
-            // Only use the explicit "version" field — vendor extensions like
-            // "org.contentauth.c2pa_rs" are internal SDK version numbers,
-            // not meaningful to end users.
-            let version = first
-                .get("version")
-                .and_then(|v| v.as_str())
-                .map(String::from);
+        // Only use the explicit "version" field — vendor extensions like
+        // "org.contentauth.c2pa_rs" are internal SDK version numbers,
+        // not meaningful to end users.
+        let version = first.get("version").and_then(|v| v.as_str()).map(String::from);
 
-            return (name.to_string(), version);
-        }
+        return (name.to_string(), version);
     }
 
     // Fall back to claim_generator string — split on "/" for name/version.
@@ -348,10 +383,8 @@ fn derive_trust(manifest: &serde_json::Value) -> TrustStatus {
         return TrustStatus::NoTrustList;
     }
 
-    let codes: Vec<&str> = statuses
-        .iter()
-        .filter_map(|s| s.get("code").and_then(|v| v.as_str()))
-        .collect();
+    let codes: Vec<&str> =
+        statuses.iter().filter_map(|s| s.get("code").and_then(|v| v.as_str())).collect();
 
     if codes.iter().any(|c| c.contains("revoked")) {
         return TrustStatus::Revoked;

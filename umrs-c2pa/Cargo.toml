@@ -2,9 +2,12 @@
 name    = "umrs-c2pa"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+authors = ["Jamie Adams"]
+description = "C2PA manifest inspection and signing toolkit for UMRS"
 
 [[bin]]
-name = "inspect"
+name = "umrs-c2pa"
 path = "src/main.rs"
 
 [lib]
@@ -18,7 +21,8 @@ system-openssl   = []                    # link system OpenSSL — required for 
 internet         = ["ureq"]             # TSA timestamps + TSA reachability probe; omit for air-gap deployments
 
 [dependencies]
-# C2PA manifest read/write — reference Rust SDK
+# C2PA manifest read/write — reference Rust SDK by Adobe (MIT OR Apache-2.0)
+# See THIRD-PARTY-NOTICES.md for full attribution.
 c2pa = { version = "0.78.6", default-features = false, features = ["openssl", "file_io"] }
 
 # OpenSSL — always present (used for ephemeral cert generation and c2pa signing).

@@ -1,0 +1,21 @@
+# ------------------------------------------------------------
+# rustfmt configuration
+# ------------------------------------------------------------
+
+edition = "2024"
+style_edition = "2024"
+
+# Line width
+max_width = 100
+use_small_heuristics = "Off"
+fn_call_width = 80
+
+# Indentation
+tab_spaces = 4
+hard_tabs = false
+
+# Imports
+reorder_imports = true
+
+# Formatting behavior
+newline_style = "Unix"

@@ -1,7 +1,13 @@
-use crate::c2pa::{ingest::IngestResult, manifest::{ChainEntry, TrustStatus}};
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025 Jamie Adams
+
+use crate::c2pa::{
+    ingest::IngestResult,
+    manifest::{ChainEntry, TrustStatus},
+};
 
 const SEPARATOR: &str = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━";
-const THIN_SEP:  &str = "────────────────────────────────────────────────────────";
+const THIN_SEP: &str = "────────────────────────────────────────────────────────";
 
 /// Print the full chain-of-custody report to stdout.
 ///
@@ -24,37 +30,37 @@ pub fn print_chain(path: &str, sha256: &str, chain: &[ChainEntry], ingest: Optio
             let idx = i + 1;
 
             // Detect self-signed: issuer == signer (cert signs itself).
-            let is_self_signed = entry.signer_name == entry.issuer
-                && entry.issuer != "Unknown";
+            let is_self_signed = entry.signer_name == entry.issuer && entry.issuer != "Unknown";
 
             // Build the trust tag with asterisk for entries that need a footnote.
             let (trust_tag, has_footnote) = match (&entry.trust_status, is_self_signed) {
-                (TrustStatus::Untrusted, true) | (TrustStatus::NoTrustList, true) => {
+                (TrustStatus::Untrusted | TrustStatus::NoTrustList, true) => {
                     let label = format!("{}", entry.trust_status);
-                    footnote_set.entry(label)
+                    footnote_set
+                        .entry(label)
                         .or_insert("Self-signed certificate — not issued by a trusted CA");
                     (format!("*[{}]", entry.trust_status), true)
                 }
                 (TrustStatus::NoTrustList, false) => {
                     let label = format!("{}", entry.trust_status);
-                    footnote_set.entry(label)
+                    footnote_set
+                        .entry(label)
                         .or_insert("No trust list configured — trust could not be evaluated");
                     (format!("*[{}]", entry.trust_status), true)
                 }
                 _ => (format!("[{}]", entry.trust_status), false),
             };
 
-            let pad = if has_footnote { 16 } else { 14 };
-            println!(
-                "  {:<3} {:<pad$}  {}",
-                idx,
-                trust_tag,
-                entry.signer_name
-            );
+            let pad = if has_footnote {
+                16
+            } else {
+                14
+            };
+            println!("  {:<3} {:<pad$}  {}", idx, trust_tag, entry.signer_name);
 
             match &entry.signed_at {
                 Some(ts) => println!("       {:<pad$}  Signed at : {} UTC", "", ts),
-                None     => println!("       {:<pad$}  Signed at : no timestamp provided", ""),
+                None => println!("       {:<pad$}  Signed at : no timestamp provided", ""),
             }
 
             // Only show Issuer if it differs from the top-level signer name.
@@ -67,7 +73,7 @@ pub fn print_chain(path: &str, sha256: &str, chain: &[ChainEntry], ingest: Optio
             // Generator + version (e.g. "ChatGPT 0.67.1")
             let gen_display = match &entry.generator_version {
                 Some(v) => format!("{} {v}", entry.generator),
-                None    => entry.generator.clone(),
+                None => entry.generator.clone(),
             };
             println!("       {:<pad$}  Generator : {}", "", gen_display);
 
